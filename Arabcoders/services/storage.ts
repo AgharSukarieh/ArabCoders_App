@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   SESSION: 'auth-session',
   ID_USER: 'idUser',
   REMEMBER_EMAIL: 'auth-remember',
+  REMEMBER_PASSWORD: 'auth-remember-password',
 };
 
 // حفظ Token
@@ -63,7 +64,36 @@ export const saveSession = async (session: any) => {
   }
 };
 
-// حفظ Remember Me
+// حفظ Remember Me (البريد الإلكتروني وكلمة المرور)
+export const saveRememberedCredentials = async (email: string, password: string, remember: boolean) => {
+  try {
+    if (remember && email && password) {
+      await AsyncStorage.setItem(STORAGE_KEYS.REMEMBER_EMAIL, JSON.stringify({
+        email,
+        password,
+        remember: true,
+      }));
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEYS.REMEMBER_EMAIL);
+      await AsyncStorage.removeItem(STORAGE_KEYS.REMEMBER_PASSWORD);
+    }
+  } catch (error) {
+    console.error('Error saving remembered credentials:', error);
+  }
+};
+
+// جلب Remember Me (البريد الإلكتروني وكلمة المرور)
+export const getRememberedCredentials = async () => {
+  try {
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.REMEMBER_EMAIL);
+    return data ? JSON.parse(data) : null;
+  } catch (error) {
+    console.error('Error getting remembered credentials:', error);
+    return null;
+  }
+};
+
+// حفظ Remember Me (للتوافق مع الكود القديم)
 export const saveRememberedEmail = async (email: string, remember: boolean) => {
   try {
     if (remember && email) {
@@ -79,7 +109,7 @@ export const saveRememberedEmail = async (email: string, remember: boolean) => {
   }
 };
 
-// جلب Remember Me
+// جلب Remember Me (للتوافق مع الكود القديم)
 export const getRememberedEmail = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.REMEMBER_EMAIL);
@@ -100,6 +130,7 @@ export const clearAuthData = async () => {
       STORAGE_KEYS.SESSION,
       STORAGE_KEYS.ID_USER,
     ]);
+    // لا نحذف Remember Me credentials عند تسجيل الخروج
   } catch (error) {
     console.error('Error clearing auth data:', error);
   }

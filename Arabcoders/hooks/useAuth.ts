@@ -13,6 +13,7 @@ import {
   saveUser,
   saveSession,
   saveRememberedEmail,
+  saveRememberedCredentials,
   clearAuthData,
 } from '../services/storage';
 import { decodeJwt, isValidEmail } from '../utils/authUtils';
@@ -291,9 +292,9 @@ export const useLogin = () => {
       await saveUser(user);
       await saveSession(session);
 
-      // حفظ Remember Me
+      // حفظ Remember Me (البريد الإلكتروني وكلمة المرور)
       if (rememberMe) {
-        await saveRememberedEmail(email.trim(), true);
+        await saveRememberedCredentials(email.trim(), password.trim(), true);
       } else {
         await AsyncStorage.removeItem('auth-remember');
       }

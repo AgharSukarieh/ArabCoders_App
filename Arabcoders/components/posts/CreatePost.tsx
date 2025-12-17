@@ -7,33 +7,41 @@ interface CreatePostProps {
   profileImage?: string;
   imageUrl?: string;
   onCreatePost: () => void;
+  onSelectImage?: () => void;
 }
 
-export const CreatePost: React.FC<CreatePostProps> = ({ profileImage, imageUrl, onCreatePost }) => {
+export const CreatePost: React.FC<CreatePostProps> = ({ profileImage, imageUrl, onCreatePost, onSelectImage }) => {
   // Use imageUrl from user data, fallback to profileImage, then default icon
   const userImage = imageUrl || profileImage;
   
   return (
     <View style={styles.container}>
-      <View style={styles.inputContainer}>
+      <TouchableOpacity 
+        style={styles.inputContainer}
+        onPress={onCreatePost}
+        activeOpacity={0.7}>
         <TextInput
           style={styles.input}
           placeholder="ما الذي يدور في ذهنك؟"
           placeholderTextColor="#999"
           multiline
+          editable={false}
+          pointerEvents="none"
         />
         <Image
           source={userImage ? { uri: userImage } : require('@/assets/images/icon.png')}
           style={styles.profileImage}
           contentFit="cover"
         />
-      </View>
+      </TouchableOpacity>
       <View style={styles.optionsContainer}>
         <TouchableOpacity style={styles.option}>
           <Text style={styles.optionEmoji}>😊</Text>
           <Text style={styles.optionText}>مشاعر أنشطة</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.option}>
+        <TouchableOpacity 
+          style={styles.option}
+          onPress={onSelectImage}>
           <Ionicons name="camera" size={20} color="#4CAF50" />
           <Text style={styles.optionText}>صورا فيديو</Text>
         </TouchableOpacity>

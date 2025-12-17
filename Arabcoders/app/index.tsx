@@ -24,7 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRegister, useLogin, usePasswordReset } from '@/hooks/useAuth';
-import { getRememberedEmail } from '@/services/storage';
+import { getRememberedCredentials } from '@/services/storage';
 import { getCountries as fetchCountriesAPI } from '@/services/authService';
 import { useRouter } from 'expo-router';
 
@@ -96,10 +96,18 @@ export default function LoginScreen() {
     };
   });
 
-  // Load remembered email
+  // Load remembered email and password
   useEffect(() => {
-    getRememberedEmail().then((data) => {
-      if (data?.email) {
+    getRememberedCredentials().then((data) => {
+      if (data?.email && data?.password) {
+        setFormData(prev => ({ 
+          ...prev, 
+          email: data.email,
+          password: data.password 
+        }));
+        setRememberMe(true);
+      } else if (data?.email) {
+        // للتوافق مع البيانات القديمة
         setFormData(prev => ({ ...prev, email: data.email }));
         setRememberMe(true);
       }
@@ -336,7 +344,7 @@ export default function LoginScreen() {
     const result = await handleLogin(formData.email, formData.password, rememberMe);
     if (result.success) {
       // Navigate to home screen
-      router.replace('/home');
+      router.replace('/home' as any);
     }
   };
 
@@ -641,7 +649,11 @@ export default function LoginScreen() {
         
            
            توافق على{' '}
-          <Text style={styles.legalLink}>الشروط والأحكام</Text>
+          <Text 
+            style={styles.legalLink}
+            onPress={() => router.push('/terms' as any)}>
+            الشروط والأحكام
+          </Text>
           {' '}و{' '}
           <Text style={styles.legalLink}>سياسة الخصوصية</Text>
         </Text>

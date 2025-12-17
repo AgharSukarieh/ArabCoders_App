@@ -6,16 +6,17 @@ import { Ionicons } from '@expo/vector-icons';
 
 interface HeaderProps {
   onSearchPress: () => void;
+  isFiltered?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onSearchPress }) => {
+export const Header: React.FC<HeaderProps> = ({ onSearchPress, isFiltered = false }) => {
   return (
     <SafeAreaView edges={['top']} style={styles.container}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.content}>
         <View style={styles.leftSection}>
           <TouchableOpacity style={styles.searchButton} onPress={onSearchPress}>
-            <Ionicons name="search" size={24} color="#666" />
+            <Ionicons name={isFiltered ? 'close' : 'search'} size={24} color="#666" />
           </TouchableOpacity>
         </View>
         <View style={styles.rightSection}>
