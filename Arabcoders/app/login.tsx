@@ -469,37 +469,6 @@ export default function LoginScreen() {
           </Animated.View>
         </Animated.View>
 
-        {/* Social Login Section */}
-        <Animated.View style={[styles.socialSection, socialSectionAnimatedStyle]}>
-          <View style={styles.separator}>
-            <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>أو</Text>
-            <View style={styles.separatorLine} />
-          </View>
-
-          <Text style={styles.socialLoginText}>سجل الدخول باستخدام</Text>
-
-          <View style={styles.socialButtons}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('@/assets/icons/likedin.png')}
-                style={styles.socialIcon}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('@/assets/icons/gmail.png')}
-                style={styles.gmailIcon}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-apple" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-
       </ScrollView>
       
       {/* Legal Text - Fixed at bottom */}
@@ -620,6 +589,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100%',
     paddingTop: 20,
     paddingBottom: 20,
     paddingHorizontal: 20,
@@ -635,6 +606,8 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
     marginBottom: 30,
   },
   card: {

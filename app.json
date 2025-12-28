@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    "expo-video",
+    "expo-router"
+  ],
+  "android": {
+    "package": "com.anonymous.apparabcoders"
+  },
+  "ios": {
+    "bundleIdentifier": "com.anonymous.apparabcoders"
+  }
+}

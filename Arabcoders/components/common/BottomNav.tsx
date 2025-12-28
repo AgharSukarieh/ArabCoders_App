@@ -9,8 +9,12 @@ interface BottomNavProps {
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unreadCount = 0 }) => {
+  // ألوان ثابتة - لا تتغير مع الوضع الليلي
+  const PRIMARY_COLOR = '#085173';
+  const TEXT_WHITE = '#FFFFFF';
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: PRIMARY_COLOR }]}>
       <TouchableOpacity
         style={styles.tab}
         onPress={() => onTabPress('home')}
@@ -19,9 +23,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unr
           <Ionicons
             name={activeTab === 'home' ? 'home' : 'home-outline'}
             size={24}
-            color="#FFFFFF"
+            color={TEXT_WHITE}
           />
-          <Text style={styles.tabLabel}>
+          <Text style={[styles.tabLabel, { color: TEXT_WHITE }]}>
             الرئيسيه
           </Text>
         </View>
@@ -35,9 +39,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unr
           <Ionicons
             name={activeTab === 'competitions' ? 'trophy' : 'trophy-outline'}
             size={24}
-            color="#FFFFFF"
+            color={TEXT_WHITE}
           />
-          <Text style={styles.tabLabel}>
+          <Text style={[styles.tabLabel, { color: TEXT_WHITE }]}>
             المسابقات
           </Text>
         </View>
@@ -51,9 +55,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unr
           <Ionicons
             name={activeTab === 'notifications' ? 'notifications' : 'notifications-outline'}
             size={24}
-            color="#FFFFFF"
+            color={TEXT_WHITE}
           />
-          <Text style={styles.tabLabel}>
+          <Text style={[styles.tabLabel, { color: TEXT_WHITE }]}>
             الاشعارات
           </Text>
         </View>
@@ -67,9 +71,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unr
           <Ionicons
             name={activeTab === 'more' ? 'menu' : 'menu-outline'}
             size={24}
-            color="#FFFFFF"
+            color={TEXT_WHITE}
           />
-          <Text style={styles.tabLabel}>
+          <Text style={[styles.tabLabel, { color: TEXT_WHITE }]}>
             المزيد
           </Text>
         </View>
@@ -81,7 +85,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, unr
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#085173',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 12,
@@ -106,7 +109,6 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 12,
-    color: '#FFFFFF',
     marginTop: 6,
     fontWeight: '400',
   },
@@ -125,7 +127,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#085173',
   },
   badgeText: {
     color: '#FFFFFF',

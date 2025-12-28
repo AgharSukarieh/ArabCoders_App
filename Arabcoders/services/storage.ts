@@ -64,6 +64,17 @@ export const saveSession = async (session: any) => {
   }
 };
 
+// جلب Session
+export const getStoredSession = async () => {
+  try {
+    const sessionStr = await AsyncStorage.getItem(STORAGE_KEYS.SESSION);
+    return sessionStr ? JSON.parse(sessionStr) : null;
+  } catch (error) {
+    console.error('Error getting session:', error);
+    return null;
+  }
+};
+
 // حفظ Remember Me (البريد الإلكتروني وكلمة المرور)
 export const saveRememberedCredentials = async (email: string, password: string, remember: boolean) => {
   try {

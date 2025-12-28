@@ -33,7 +33,8 @@ export const useRegister = () => {
     username: string,
     password: string,
     countryId: number,
-    imageFile: any
+    imageFile: any,
+    universityId: number = 0
   ) => {
     try {
       setLoading(true);
@@ -73,6 +74,7 @@ export const useRegister = () => {
         username: username.trim(),
         password: password.trim(),
         countryId,
+        universityId,
         imageFile,
       };
       await AsyncStorage.setItem('pendingSignupData', JSON.stringify(signupData));
@@ -161,7 +163,8 @@ export const useRegister = () => {
         signupData.username,
         signupData.countryId,
         otp.trim(),
-        signupData.imageFile
+        signupData.imageFile,
+        signupData.universityId || 0
       );
 
       // حفظ بيانات المستخدم
@@ -259,9 +262,17 @@ export const useLogin = () => {
         return { success: false };
       }
 
-      // حفظ Token
-      const tokenExpiration = Date.now() + 1000 * 60 * 60; // 1 hour
-      await saveToken(data.token, tokenExpiration);
+      // حفظ Token فقط إذا كان "تذكرني" مفعل
+      if (rememberMe) {
+        // إذا كان "تذكرني" مفعل، نحفظ التوكن بصلاحية أطول
+        const tokenExpiration = Date.now() + 1000 * 60 * 60 * 24 * 7; // 7 days
+        await saveToken(data.token, tokenExpiration);
+      } else {
+        // إذا لم يكن "تذكرني" مفعل، نحفظ التوكن بصلاحية قصيرة (ساعة واحدة)
+        // لكن لا نحذفه عند إغلاق التطبيق - فقط عند تسجيل الخروج
+        const tokenExpiration = Date.now() + 1000 * 60 * 60; // 1 hour
+        await saveToken(data.token, tokenExpiration);
+      }
 
       // استخراج بيانات المستخدم
       const tokenPayload = decodeJwt(data.token);
@@ -296,7 +307,9 @@ export const useLogin = () => {
       if (rememberMe) {
         await saveRememberedCredentials(email.trim(), password.trim(), true);
       } else {
+        // إذا لم يكن "تذكرني" مفعل، نحذف بيانات "تذكرني" القديمة
         await AsyncStorage.removeItem('auth-remember');
+        await AsyncStorage.removeItem('auth-remember-password');
       }
 
     

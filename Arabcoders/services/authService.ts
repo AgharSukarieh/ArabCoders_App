@@ -1,5 +1,9 @@
 import api from './api';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveToken } from './storage';
+
+const API_BASE_URL = 'http://arabcodetest.runasp.net';
 
 // ============================================
 // 1. إرسال OTP (للتسجيل)
@@ -44,20 +48,22 @@ export const register = async (
   username: string,
   countryId: number,
   otp: string,
-  imageFile: any = null
+  imageFile: any = null,
+  universityId: number = 0
 ): Promise<any> => {
   try {
     if (!email || !password || !username || !countryId || !otp) {
       throw new Error('جميع الحقول مطلوبة');
     }
     
-    console.log('📤 Registering user:', { email, username, countryId });
+    console.log('📤 Registering user:', { email, username, countryId, universityId });
     
     const queryParams = new URLSearchParams({
       Email: email.trim(),
       Password: password.trim(),
       UserName: username.trim(),
       CountryId: countryId.toString(),
+      UniversityId: universityId.toString(),
       otp: otp.trim(),
     });
     
@@ -289,9 +295,21 @@ export const getCountries = async (): Promise<Array<{ id: number; nameCountry: s
 // ============================================
 export const refreshToken = async (): Promise<any> => {
   try {
-    console.log('📤 Refreshing token...');
+    console.log('📤 Refreshing token from refresh-token endpoint...');
     
-    const response = await api.get('/api/auth/refresh-token');
+    // استخدام axios مباشرة لتجنب interceptor الذي قد يحاول تجديد token مرة أخرى
+    // refresh-token endpoint قد لا يحتاج إلى token في header (يستخدم cookies/session)
+    // أو قد يحتاج إلى token منتهي الصلاحية
+    const token = await AsyncStorage.getItem('token');
+    
+    const response = await axios.get(`${API_BASE_URL}/api/auth/refresh-token`, {
+      headers: {
+        'accept': '*/*',
+        // إضافة token في header إذا كان موجوداً (حتى لو كان منتهي الصلاحية)
+        ...(token ? { 'Authorization': `Bearer ${token.trim()}` } : {}),
+      },
+      timeout: 10000,
+    });
     
     console.log('✅ Refresh token response:', response.data);
     
@@ -353,6 +371,231 @@ export const revokeToken = async (token: string): Promise<any> => {
     // لا نرمي خطأ هنا، لأننا نريد مسح البيانات المحلية حتى لو فشل الطلب
     console.warn('⚠️ Revoke token failed, but continuing with local logout:', errorMessage);
     return { success: false, message: errorMessage };
+  }
+};
+
+// ============================================
+// 8.5. جلب قائمة الجامعات
+// ============================================
+export const getUniversities = async (): Promise<Array<{ id: number; nameUniversity: string; imageUrl?: string }>> => {
+  try {
+    console.log('📤 Fetching universities...');
+    
+    const response = await api.get('/api/universities', {
+      headers: {
+        'accept': '*/*',
+      },
+    });
+    
+    console.log('✅ Universities fetched:', response.data);
+    
+    if (Array.isArray(response.data)) {
+      return response.data.map((university: any) => ({
+        id: university.id || 0,
+        nameUniversity: university.nameUniversity || university.name || '',
+        imageUrl: university.imageUrl || university.iconUrl || '',
+      }));
+    }
+    
+    return [];
+  } catch (error: any) {
+    console.error('❌ Error fetching universities:', error?.response?.data || error);
+    // إرجاع قائمة فارغة في حالة الخطأ
+    return [];
+  }
+};
+
+// ============================================
+// 9. إرسال OTP لتغيير الإيميل
+// ============================================
+export const sendOtpForEmailReset = async (email: string): Promise<string> => {
+  try {
+    if (!email || !email.trim()) {
+      throw new Error('البريد الإلكتروني مطلوب');
+    }
+    const emailValue = email.trim();
+    console.log('📤 Sending OTP for email reset:', { email: emailValue });
+    
+    const response = await api.post(
+      `/api/users/email/reset?Email=${encodeURIComponent(emailValue)}`,
+      null,
+      {
+        headers: {
+          accept: '*/*',
+        },
+      }
+    );
+    
+    console.log('✅ Send OTP for email reset response:', response.data);
+    return response.data; // "The Otp Has Sent"
+  } catch (error: any) {
+    console.error('❌ Error sending OTP for email reset:', error?.response?.data || error);
+    const errorMessage =
+      error?.response?.data?.message ||
+      error?.response?.data ||
+      error?.message ||
+      'خطأ في إرسال رمز التحقق';
+    throw new Error(errorMessage);
+  }
+};
+
+// ============================================
+// 10. تحديث بيانات المستخدم
+// ============================================
+export interface UpdateUserData {
+  id: number;
+  email: string;
+  userName: string;
+  imageURL: string;
+  countryId: number;
+  universityId: number;
+  otp: string;
+}
+
+export const updateUser = async (
+  userId: number,
+  userData: UpdateUserData,
+  originalEmail?: string
+): Promise<any> => {
+  try {
+    console.log('📤 Updating user:', userId, userData);
+    
+    // لا نحاول تجديد الـ token هنا - الـ interceptor سيتعامل مع هذا تلقائياً عند الحاجة
+    // التحقق من تغيير الإيميل
+    const emailChanged = originalEmail && originalEmail.trim() !== userData.email.trim();
+    
+    if (emailChanged) {
+      // إذا تم تغيير الإيميل، يجب التحقق من وجود OTP
+      console.log('📧 Email changed, verifying OTP');
+      if (!userData.otp || !userData.otp.trim()) {
+        throw new Error('يرجى إدخال رمز التحقق المرسل إلى الإيميل الجديد');
+      }
+    } else {
+      // إذا لم يتم تغيير الإيميل، نرسل OTP فارغ
+      console.log('✅ Email not changed, updating without OTP');
+      userData.otp = '';
+    }
+    
+    console.log('📤 Update user data:', userData);
+    
+    // الـ interceptor في api.ts سيتعامل مع الـ token تلقائياً
+    const response = await api.put(
+      `/api/users/${userId}`,
+      userData,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          accept: 'text/plain',
+        },
+      }
+    );
+    
+    console.log('✅ Update user response:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error updating user:', error);
+    console.error('❌ Error response data:', error?.response?.data);
+    console.error('❌ Error response status:', error?.response?.status);
+    
+    // محاولة استخراج رسالة الخطأ من عدة مصادر
+    let errorMessage = 'خطأ في تحديث بيانات المستخدم';
+    
+    if (error?.response?.data) {
+      if (typeof error.response.data === 'string') {
+        errorMessage = error.response.data;
+      } else if (error.response.data.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response.data.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response.data.title) {
+        errorMessage = error.response.data.title;
+      }
+      } else if (error?.message) {
+      errorMessage = error.message;
+    }
+    
+    throw new Error(errorMessage);
+  }
+};
+
+// جلب معلومات مستخدم معين
+export const getUserById = async (userId: number): Promise<any> => {
+  try {
+    console.log('📤 Fetching user:', userId);
+    const response = await api.get(`/api/users/${userId}`, {
+      headers: {
+        'accept': 'text/plain',
+      },
+    });
+    console.log('✅ User fetched:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error fetching user:', error);
+    throw new Error(error?.response?.data?.message || error?.message || 'فشل جلب معلومات المستخدم');
+  }
+};
+
+// متابعة مستخدم
+export const followUser = async (followerId: number, followId: number): Promise<any> => {
+  try {
+    console.log('📤 Following user:', { followerId, followId });
+    const response = await api.post('/api/follows', {
+      follower: followerId,
+      follow: followId,
+    }, {
+      headers: {
+        'accept': '*/*',
+        'Content-Type': 'application/json',
+      },
+    });
+    console.log('✅ User followed:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error following user:', error);
+    throw new Error(error?.response?.data?.message || error?.message || 'فشل متابعة المستخدم');
+  }
+};
+
+// إلغاء متابعة مستخدم
+export const unfollowUser = async (followerId: number, followId: number): Promise<any> => {
+  try {
+    console.log('📤 Unfollowing user:', { followerId, followId });
+    const response = await api.delete('/api/follows', {
+      data: {
+        follower: followerId,
+        follow: followId,
+      },
+      headers: {
+        'accept': '*/*',
+        'Content-Type': 'application/json',
+      },
+    });
+    console.log('✅ User unfollowed:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error unfollowing user:', error);
+    throw new Error(error?.response?.data?.message || error?.message || 'فشل إلغاء متابعة المستخدم');
+  }
+};
+
+// التحقق من حالة المتابعة
+export const getFollowStatus = async (followerId: number, followId: number): Promise<boolean> => {
+  try {
+    console.log('📤 Checking follow status:', { followerId, followId });
+    const response = await api.get(`/api/follows/status?followerId=${followerId}&followId=${followId}`, {
+      headers: {
+        'accept': '*/*',
+      },
+    });
+    console.log('✅ Follow status:', response.data);
+    // قد يكون response.data boolean أو object يحتوي على isFollowing
+    if (typeof response.data === 'boolean') {
+      return response.data;
+    }
+    return response.data?.isFollowing || false;
+  } catch (error: any) {
+    console.error('❌ Error checking follow status:', error);
+    return false;
   }
 };
 

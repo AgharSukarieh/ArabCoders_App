@@ -399,20 +399,44 @@ export const getLikeStatus = async (postId: number): Promise<boolean> => {
     const url = `/api/post-likes/status?postId=${numericPostId}`;
     console.log('📤 Request URL:', url);
     
-    const response = await api.get(url);
+    // إضافة timeout أقصر لتجنب الانتظار الطويل
+    const response = await Promise.race([
+      api.get(url),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 8000) // 8 ثواني
+      )
+    ]) as any;
+    
     console.log('✅ Like status:', response.data);
     
     // API يرجع true أو false
     return response.data === true || response.data === 'true';
   } catch (error: any) {
-    console.error('❌ Error checking like status:', error);
+    const errorStatus = error?.response?.status;
+    const errorMessage = error?.message || '';
     
-    if (error?.response?.status === 401) {
+    // إذا كان الخطأ 401 (Unauthorized)، نرمي خطأ
+    if (errorStatus === 401) {
       throw new Error('غير مصرح لك. يرجى تسجيل الدخول مرة أخرى.');
     }
     
-    // إذا كان الخطأ 404 أو لم يكن هناك لايك، نرجع false
-    if (error?.response?.status === 404) {
+    // إذا كان الخطأ 404 (Not Found) أو 503 (Service Unavailable) أو 500 (Server Error) أو timeout
+    // نرجع false بدون إزعاج المستخدم (الخادم مشغول أو غير متاح)
+    if (errorStatus === 404 || 
+        errorStatus === 503 || 
+        errorStatus === 500 || 
+        errorStatus === 502 ||
+        errorStatus === 504 ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('Timeout')) {
+      console.log('⚠️ Like status check failed (server unavailable or timeout), returning false for post:', postId);
+      return false; // نرجع false كقيمة افتراضية
+    }
+    
+    // للأخطاء الأخرى، نرمي خطأ فقط إذا لم تكن network error
+    if (!error?.response) {
+      // Network error - نرجع false
+      console.log('⚠️ Network error checking like status, returning false for post:', postId);
       return false;
     }
     
@@ -591,13 +615,32 @@ export const searchPostsRemote = async (params: SearchPostsParams): Promise<Post
       },
     });
 
-    const data = response.data;
-    const posts = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.posts)
-        ? data.posts
-        : [];
+    console.log('📥 Search API response:', {
+      status: response.status,
+      dataType: Array.isArray(response.data) ? 'array' : typeof response.data,
+      dataLength: Array.isArray(response.data) ? response.data.length : (response.data?.posts?.length || 0),
+      hasPosts: !!response.data?.posts,
+    });
 
+    const data = response.data;
+    let posts: any[] = [];
+    
+    if (Array.isArray(data)) {
+      // إذا كان الرد array مباشرة
+      posts = data;
+    } else if (Array.isArray(data?.posts)) {
+      // إذا كان الرد object يحتوي على posts
+      posts = data.posts;
+    } else if (data?.data && Array.isArray(data.data)) {
+      // إذا كان الرد object يحتوي على data.posts
+      posts = data.data;
+    } else if (data && typeof data === 'object') {
+      // محاولة أخرى - قد يكون الرد object يحتوي على array في أي مكان
+      console.log('⚠️ Unexpected response format, trying to extract posts...');
+      posts = [];
+    }
+
+    console.log('✅ Extracted posts:', posts.length);
     return posts.map(normalizePost);
   } catch (error: any) {
     console.error('❌ Error searching posts remotely:', error?.response?.data || error);
@@ -606,6 +649,125 @@ export const searchPostsRemote = async (params: SearchPostsParams): Promise<Post
       error?.message ||
       'خطأ في البحث عن المنشورات'
     );
+  }
+};
+
+/**
+ * حذف منشور
+ * @param {number} postId - معرف المنشور
+ * @returns {Promise<void>}
+ */
+export const deletePost = async (postId: number): Promise<void> => {
+  try {
+    console.log('📤 Deleting post:', postId);
+    
+    const numericPostId = parseInt(String(postId), 10);
+    if (isNaN(numericPostId) || numericPostId <= 0 || !Number.isInteger(numericPostId)) {
+      throw new Error('معرف المنشور غير صحيح');
+    }
+    
+    const response = await api.delete(`/api/posts/${numericPostId}`, {
+      headers: {
+        'accept': '*/*',
+      },
+    });
+    
+    console.log('✅ Post deleted successfully:', response.data);
+  } catch (error: any) {
+    console.error('❌ Error deleting post:', {
+      status: error?.response?.status,
+      statusText: error?.response?.statusText,
+      data: error?.response?.data,
+      message: error?.message,
+      postId: postId,
+    });
+    
+    // Handle 401 Unauthorized
+    if (error?.response?.status === 401) {
+      throw new Error('غير مصرح لك. يرجى تسجيل الدخول مرة أخرى.');
+    }
+    
+    // Handle 403 Forbidden
+    if (error?.response?.status === 403) {
+      throw new Error('ليس لديك صلاحية لحذف هذا المنشور.');
+    }
+    
+    // Handle 404 Not Found
+    if (error?.response?.status === 404) {
+      throw new Error('المنشور غير موجود.');
+    }
+    
+    const errorMessage =
+      error?.response?.data?.message ||
+      (typeof error?.response?.data === 'string' ? error?.response?.data : null) ||
+      error?.message ||
+      'خطأ في حذف المنشور';
+    
+    throw new Error(errorMessage);
+  }
+};
+
+/**
+ * تحديث منشور
+ * @param {number} postId - معرف المنشور
+ * @param {CreatePostData} postData - بيانات المنشور المحدثة
+ * @returns {Promise<Post>} المنشور المحدث
+ */
+export const updatePost = async (postId: number, postData: CreatePostData): Promise<Post> => {
+  try {
+    console.log('📤 Updating post:', postId);
+    
+    const numericPostId = parseInt(String(postId), 10);
+    if (isNaN(numericPostId) || numericPostId <= 0 || !Number.isInteger(numericPostId)) {
+      throw new Error('معرف المنشور غير صحيح');
+    }
+
+    // التأكد من أن userId رقم صحيح وأكبر من 0
+    if (!postData.userId || postData.userId <= 0 || !Number.isInteger(postData.userId)) {
+      throw new Error(`معرف المستخدم غير صحيح: ${postData.userId}. يجب أن يكون رقماً صحيحاً أكبر من 0`);
+    }
+
+    // إعداد البيانات بالشكل المطلوب من API (id: 0 كما في curl)
+    const updateData = {
+      id: 0, // كما في curl command
+      title: postData.title,
+      content: postData.content,
+      userId: postData.userId,
+      videos: postData.videos || [],
+      images: postData.images || [],
+      tags: postData.tags || [],
+    };
+
+    console.log('📤 Update post data:', JSON.stringify(updateData, null, 2));
+
+    const response = await api.put(`/api/posts/${numericPostId}`, updateData, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': '*/*',
+      },
+    });
+    
+    console.log('✅ Post updated successfully:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Error updating post:', error?.response?.data || error);
+    
+    // Handle 401 Unauthorized
+    if (error?.response?.status === 401) {
+      throw new Error('غير مصرح لك. يرجى تسجيل الدخول مرة أخرى.');
+    }
+    
+    // Handle 403 Forbidden
+    if (error?.response?.status === 403) {
+      throw new Error('ليس لديك صلاحية لتعديل هذا المنشور.');
+    }
+    
+    // Handle 404 Not Found
+    if (error?.response?.status === 404) {
+      throw new Error('المنشور غير موجود.');
+    }
+    
+    throw new Error(error?.response?.data?.message || error?.message || 'خطأ في تحديث المنشور');
   }
 };
 

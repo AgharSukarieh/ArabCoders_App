@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useGlobalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import Animated, {
   useSharedValue,
@@ -16,6 +16,7 @@ import Animated, {
   useDerivedValue,
 } from 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -34,6 +35,9 @@ export default function SplashScreen() {
   const codersTranslateX = useSharedValue(0); // لصورة coders.png
 
   useEffect(() => {
+    // مسح العلامة عند بدء الأنيميشن لضمان أن splash screen تبدأ من جديد
+    AsyncStorage.removeItem('splash_finished').catch(() => {});
+    
     // النجمة تظهر بعد 0.8 ثانية
     starOpacity.value = withDelay(
       800,
@@ -127,9 +131,13 @@ export default function SplashScreen() {
       })
     );
 
-    // الانتقال بعد 8 ثواني
-    const timer = setTimeout(() => {
-      router.replace('/' as any);
+    // بعد انتهاء الأنيميشن (8 ثواني)، نضع علامة أن splash انتهى
+    // ثم ننتظر حتى ينتهي التحقق من المصادقة في _layout.tsx
+    const timer = setTimeout(async () => {
+      console.log('✅ Splash animation finished, signaling to check auth');
+      // وضع علامة أن splash انتهى - _layout.tsx سيتحقق من هذه العلامة ويبدأ التحقق من المصادقة
+      await AsyncStorage.setItem('splash_finished', 'true');
+      // لا ننتقل مباشرة - نترك _layout.tsx يتولى التوجيه بعد التحقق من المصادقة
     }, 8000);
 
     return () => clearTimeout(timer);

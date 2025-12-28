@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Dimensions, FlatList, SafeAreaView, ScrollView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Dimensions, FlatList, SafeAreaView, ScrollView, Platform, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -11,6 +12,7 @@ import Animated, {
 import { Post } from '@/services/postsService';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -21,17 +23,160 @@ interface PostCardProps {
   onShare: (postId: number) => void;
   onPostPress?: (post: Post) => void;
   onShowLikes?: (postId: number) => void;
+  onEdit?: (post: Post) => void;
+  onDelete?: (postId: number) => void;
+  onReport?: (postId: number) => void;
+  onUserPress?: (userId: number) => void;
+  currentUserId?: number;
 }
 
 interface MediaItem {
   type: 'image' | 'video';
   url: string;
+  thumbnailUrl?: string;
 }
 
-export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onShare, onPostPress, onShowLikes }) => {
+// Component to extract and display video thumbnail (frame from video)
+const VideoThumbnail = ({ videoUrl, style }: { videoUrl: string; style: any }) => {
+  const videoHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+          }
+          video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+          }
+          canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+          }
+          img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+        </style>
+      </head>
+      <body>
+        <video 
+          id="thumbVideo"
+          src="${videoUrl}" 
+          preload="metadata"
+          muted
+          playsinline
+          webkit-playsinline
+          style="width:100%;height:100%;object-fit:cover;opacity:0;"
+        ></video>
+        <canvas id="thumbCanvas"></canvas>
+        <img id="thumbImage" style="display:none;" />
+        <script>
+          (function() {
+            var video = document.getElementById('thumbVideo');
+            var canvas = document.getElementById('thumbCanvas');
+            var img = document.getElementById('thumbImage');
+            var ctx = canvas.getContext('2d');
+            
+            function extractFrame() {
+              try {
+                canvas.width = video.videoWidth || video.clientWidth;
+                canvas.height = video.videoHeight || video.clientHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                var dataURL = canvas.toDataURL('image/jpeg', 0.8);
+                img.src = dataURL;
+                img.style.display = 'block';
+                video.style.display = 'none';
+                canvas.style.display = 'none';
+              } catch(e) {
+                // Fallback: show video directly
+                video.style.opacity = '1';
+              }
+            }
+            
+            video.addEventListener('loadedmetadata', function() {
+              video.currentTime = 0.5;
+            });
+            
+            video.addEventListener('seeked', function() {
+              extractFrame();
+            });
+            
+            video.addEventListener('loadeddata', function() {
+              if (video.readyState >= 2) {
+                video.currentTime = 0.5;
+              }
+            });
+            
+            video.addEventListener('canplay', function() {
+              if (video.readyState >= 2) {
+                video.currentTime = 0.5;
+              }
+            });
+            
+            video.load();
+          })();
+        </script>
+      </body>
+    </html>
+  `;
+  
+  return (
+    <View style={styles.videoThumbnailContainer}>
+      <WebView
+        source={{ html: videoHtml }}
+        style={style}
+        scrollEnabled={false}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        javaScriptEnabled={true}
+        mediaPlaybackRequiresUserAction={false}
+        allowsInlineMediaPlayback={true}
+        bounces={false}
+      />
+    </View>
+  );
+};
+
+export const PostCard: React.FC<PostCardProps> = ({ 
+  post, 
+  onLike, 
+  onComment, 
+  onShare, 
+  onPostPress, 
+  onShowLikes,
+  onEdit,
+  onDelete,
+  onReport,
+  onUserPress,
+  currentUserId
+}) => {
+  const { isDark } = useTheme();
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [showFullTextModal, setShowFullTextModal] = useState(false);
+  const [isContentExpanded, setIsContentExpanded] = useState(false);
   const flatListRef = useRef<FlatList<MediaItem>>(null);
   
   // Animation values for full text modal
@@ -66,7 +211,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
       post.images.forEach(url => media.push({ type: 'image', url }));
     }
     if (post.videos && post.videos.length > 0) {
-      post.videos.forEach(url => media.push({ type: 'video', url }));
+      post.videos.forEach((video: any) => {
+        // Handle both string URLs and video objects
+        const videoUrl = typeof video === 'string' ? video : (video.url || video.videoUrl || '');
+        const thumbnailUrl = typeof video === 'object' ? (video.thumbnailUrl || video.thumbnail || '') : '';
+        if (videoUrl) {
+          media.push({ type: 'video', url: videoUrl, thumbnailUrl });
+        }
+      });
     }
     return media;
   };
@@ -146,21 +298,45 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
 
     if (displayedMedia.length === 1) {
       // صورة واحدة - عرض كامل العرض
+      const mediaItem = displayedMedia[0];
+      
+      if (mediaItem.type === 'video') {
+        // للفيديو: استخدام WebView لاستخراج frame من الفيديو
+        const videoUrl = mediaItem.url;
+        const thumbnailUrl = mediaItem.thumbnailUrl;
+        
+        return (
+          <TouchableOpacity
+            style={styles.singleImageContainer}
+            onPress={() => openMediaModal(0)}
+            activeOpacity={0.9}>
+            {thumbnailUrl ? (
+              <Image
+                source={{ uri: thumbnailUrl }}
+                style={styles.singleImage}
+                contentFit="cover"
+              />
+            ) : (
+              <VideoThumbnail videoUrl={videoUrl} style={styles.singleImage} />
+            )}
+            <View style={styles.videoOverlay}>
+              <Ionicons name="play-circle" size={50} color="#fff" />
+            </View>
+          </TouchableOpacity>
+        );
+      }
+      
+      // للصورة العادية
       return (
         <TouchableOpacity
           style={styles.singleImageContainer}
           onPress={() => openMediaModal(0)}
           activeOpacity={0.9}>
           <Image
-            source={{ uri: displayedMedia[0].url }}
+            source={{ uri: mediaItem.url }}
             style={styles.singleImage}
             contentFit="cover"
           />
-          {displayedMedia[0].type === 'video' && (
-            <View style={styles.videoOverlay}>
-              <Ionicons name="play-circle" size={50} color="#fff" />
-            </View>
-          )}
         </TouchableOpacity>
       );
     }
@@ -169,69 +345,117 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
       // صورتان - جنباً إلى جنب
       return (
         <View style={styles.twoImagesContainer}>
-          {displayedMedia.map((media, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.twoImageItem}
-              onPress={() => openMediaModal(index)}
-              activeOpacity={0.9}>
-              <Image
-                source={{ uri: media.url }}
-                style={styles.twoImage}
-                contentFit="cover"
-              />
-              {media.type === 'video' && (
-                <View style={styles.videoOverlay}>
-                  <Ionicons name="play-circle" size={40} color="#fff" />
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
+          {displayedMedia.map((media, index) => {
+            if (media.type === 'video') {
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.twoImageItem}
+                  onPress={() => openMediaModal(index)}
+                  activeOpacity={0.9}>
+                  {media.thumbnailUrl ? (
+                    <Image
+                      source={{ uri: media.thumbnailUrl }}
+                      style={styles.twoImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <VideoThumbnail videoUrl={media.url} style={styles.twoImage} />
+                  )}
+                  <View style={styles.videoOverlay}>
+                    <Ionicons name="play-circle" size={40} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              );
+            }
+            
+            return (
+              <TouchableOpacity
+                key={index}
+                style={styles.twoImageItem}
+                onPress={() => openMediaModal(index)}
+                activeOpacity={0.9}>
+                <Image
+                  source={{ uri: media.url }}
+                  style={styles.twoImage}
+                  contentFit="cover"
+                />
+              </TouchableOpacity>
+            );
+          })}
         </View>
       );
     }
 
     if (displayedMedia.length === 3) {
       // ثلاث صور - واحدة كبيرة واثنتان صغيرتان
+      const firstMedia = displayedMedia[0];
+      
       return (
         <View style={styles.threeImagesContainer}>
           <TouchableOpacity
             style={styles.threeImagesLarge}
             onPress={() => openMediaModal(0)}
             activeOpacity={0.9}>
-            <Image
-              source={{ uri: displayedMedia[0].url }}
-              style={styles.threeImagesLargeImage}
-              contentFit="cover"
-            />
-            {displayedMedia[0].type === 'video' && (
+            {firstMedia.type === 'video' ? (
+              firstMedia.thumbnailUrl ? (
+                <Image
+                  source={{ uri: firstMedia.thumbnailUrl }}
+                  style={styles.threeImagesLargeImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <VideoThumbnail videoUrl={firstMedia.url} style={styles.threeImagesLargeImage} />
+              )
+            ) : (
+              <Image
+                source={{ uri: firstMedia.url }}
+                style={styles.threeImagesLargeImage}
+                contentFit="cover"
+              />
+            )}
+            {firstMedia.type === 'video' && (
               <View style={styles.videoOverlay}>
                 <Ionicons name="play-circle" size={50} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
           <View style={styles.threeImagesSmall}>
-            {displayedMedia.slice(1, 3).map((media, index) => (
-              <TouchableOpacity
-                key={index + 1}
-                style={[
-                  styles.threeImagesSmallItem,
-                  index === displayedMedia.slice(1, 3).length - 1 && styles.threeImagesSmallItemLast,
-                ]}
-                onPress={() => openMediaModal(index + 1)}
-                activeOpacity={0.9}>
-                <Image
-                  source={{ uri: media.url }}
-                  style={styles.threeImagesSmallImage}
-                  contentFit="cover"
-                />
-                {media.type === 'video' && (
-                  <View style={styles.videoOverlay}>
-                    <Ionicons name="play-circle" size={30} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+            {displayedMedia.slice(1, 3).map((media, index) => {
+              return (
+                <TouchableOpacity
+                  key={index + 1}
+                  style={[
+                    styles.threeImagesSmallItem,
+                    index === displayedMedia.slice(1, 3).length - 1 && styles.threeImagesSmallItemLast,
+                  ]}
+                  onPress={() => openMediaModal(index + 1)}
+                  activeOpacity={0.9}>
+                  {media.type === 'video' ? (
+                    media.thumbnailUrl ? (
+                      <Image
+                        source={{ uri: media.thumbnailUrl }}
+                        style={styles.threeImagesSmallImage}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <VideoThumbnail videoUrl={media.url} style={styles.threeImagesSmallImage} />
+                    )
+                  ) : (
+                    <Image
+                      source={{ uri: media.url }}
+                      style={styles.threeImagesSmallImage}
+                      contentFit="cover"
+                    />
+                  )}
+                  {media.type === 'video' && (
+                    <View style={styles.videoOverlay}>
+                      <Ionicons name="play-circle" size={30} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       );
@@ -243,6 +467,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
         {displayedMedia.map((media, index) => {
           const isLastInRow = index % 2 === 1;
           const isLastRow = index >= 2;
+          
           return (
             <TouchableOpacity
               key={index}
@@ -253,11 +478,23 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
               ]}
               onPress={() => openMediaModal(index)}
               activeOpacity={0.9}>
-              <Image
-                source={{ uri: media.url }}
-                style={styles.fourImage}
-                contentFit="cover"
-              />
+              {media.type === 'video' ? (
+                media.thumbnailUrl ? (
+                  <Image
+                    source={{ uri: media.thumbnailUrl }}
+                    style={styles.fourImage}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <VideoThumbnail videoUrl={media.url} style={styles.fourImage} />
+                )
+              ) : (
+                <Image
+                  source={{ uri: media.url }}
+                  style={styles.fourImage}
+                  contentFit="cover"
+                />
+              )}
               {media.type === 'video' && (
                 <View style={styles.videoOverlay}>
                   <Ionicons name="play-circle" size={30} color="#fff" />
@@ -320,21 +557,75 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
                   });
                 });
               }}
-              renderItem={({ item, index }) => (
-                <View style={styles.modalMediaContainer}>
-                  {item.type === 'image' ? (
-                    <Image
-                      source={{ uri: item.url }}
-                      style={styles.modalImage}
-                      contentFit="contain"
-                    />
-                  ) : (
+              renderItem={({ item, index }) => {
+                const VideoPlayer = ({ videoUrl }: { videoUrl: string | any }) => {
+                  // Ensure videoUrl is a string
+                  const videoUrlString = typeof videoUrl === 'string' ? videoUrl : (videoUrl?.url || videoUrl?.videoUrl || String(videoUrl || ''));
+                  
+                  // Create HTML video player
+                  const videoHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <style>
+                          body {
+                            margin: 0;
+                            padding: 0;
+                            background: #000;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                          }
+                          video {
+                            width: 100%;
+                            height: 100%;
+                            object-fit: contain;
+                          }
+                        </style>
+                      </head>
+                      <body>
+                        <video controls autoplay>
+                          <source src="${videoUrlString}" type="video/mp4">
+                          <source src="${videoUrlString}" type="video/webm">
+                          <source src="${videoUrlString}" type="video/ogg">
+                          Your browser does not support the video tag.
+                        </video>
+                      </body>
+                    </html>
+                  `;
+                  
+                  return (
                     <View style={styles.modalVideoContainer}>
-                      <Text style={styles.videoPlaceholder}>Video: {item.url}</Text>
+                      <WebView
+                        source={{ html: videoHtml }}
+                        style={styles.modalVideo}
+                        allowsFullscreenVideo={true}
+                        mediaPlaybackRequiresUserAction={false}
+                        javaScriptEnabled={true}
+                        domStorageEnabled={true}
+                      />
                     </View>
-                  )}
-                </View>
-              )}
+                  );
+                };
+
+                return (
+                  <View style={styles.modalMediaContainer}>
+                    {item.type === 'image' ? (
+                      <Image
+                        source={{ uri: item.url }}
+                        style={styles.modalImage}
+                        contentFit="contain"
+                      />
+                    ) : (
+                      <View style={styles.modalVideoContainer}>
+                        <VideoPlayer videoUrl={item.url} />
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
               keyExtractor={(item, index) => `media-${index}`}
             />
           </View>
@@ -357,7 +648,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
 
           {/* المحتوى القابل للتمرير */}
           <ScrollView 
-            style={styles.modalScrollView}
+            style={dynamicStyles.modalScrollView}
             contentContainerStyle={styles.modalScrollContent}
             showsVerticalScrollIndicator={false}>
             {/* معلومات المستخدم والمحتوى على اليمين */}
@@ -381,7 +672,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
               {/* النص مع زر المزيد */}
               {hasContent && (
                 <View style={styles.modalContentContainer}>
-                  <Text style={styles.modalContentText}>
+                  <Text style={dynamicStyles.modalContentText}>
                     {previewContent}
                   </Text>
                   {isContentLong && (
@@ -420,13 +711,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
                 />
               </Animated.View>
               <Animated.View style={[styles.fullTextModal, fullTextModalStyle]}>
-                <View style={styles.fullTextModalCard}>
+                <View style={dynamicStyles.fullTextModalCard}>
                   <View style={styles.fullTextModalHeader}>
-                    <Text style={styles.fullTextModalTitle}>النص الكامل</Text>
+                    <Text style={dynamicStyles.fullTextModalTitle}>النص الكامل</Text>
                     <TouchableOpacity 
                       onPress={closeFullTextModal}
                       style={styles.fullTextModalCloseButton}>
-                      <Ionicons name="close" size={24} color="#333" />
+                      <Ionicons name="close" size={24} color={isDark ? "#CCCCCC" : "#333"} />
                     </TouchableOpacity>
                   </View>
                   <View style={styles.fullTextSeparatorLine} />
@@ -434,7 +725,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
                     style={styles.fullTextModalScrollView} 
                     nestedScrollEnabled
                     showsVerticalScrollIndicator={true}>
-                    <Text style={styles.fullTextModalText}>
+                    <Text style={dynamicStyles.fullTextModalText}>
                       {fullContent}
                     </Text>
                   </ScrollView>
@@ -453,7 +744,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
               <Ionicons 
                 name={post.isLikedIt ? "heart" : "heart-outline"} 
                 size={24} 
-                color={post.isLikedIt ? "#FF3B30" : "#666"} 
+                color={post.isLikedIt ? "#FF3B30" : (isDark ? "#CCCCCC" : "#666")} 
               />
               {post.numberLike > 0 && (
                 <Text style={styles.modalActionCount}>{post.numberLike}</Text>
@@ -466,7 +757,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
                 closeMediaModal();
                 onComment(post.id);
               }}>
-              <Ionicons name="chatbubble-outline" size={24} color="#666" />
+              <Ionicons name="chatbubble-outline" size={24} color={isDark ? "#CCCCCC" : "#666"} />
               {post.numberComment !== undefined && post.numberComment > 0 && (
                 <Text style={styles.modalActionCount}>{post.numberComment}</Text>
               )}
@@ -475,7 +766,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
             <TouchableOpacity 
               style={styles.modalActionVerticalItem}
               onPress={() => onShare(post.id)}>
-              <Ionicons name="arrow-up" size={24} color="#666" />
+              <Ionicons name="arrow-up" size={24} color={isDark ? "#CCCCCC" : "#666"} />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -483,39 +774,125 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
     );
   };
 
+  const dynamicStyles = {
+    container: { ...styles.container, backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderBottomColor: isDark ? '#333333' : '#E5E5E5' },
+    userName: { ...styles.userName, color: isDark ? '#FFFFFF' : '#000' },
+    timeAgo: { ...styles.timeAgo, color: isDark ? '#CCCCCC' : '#666' },
+    titleText: { ...styles.titleText, color: isDark ? '#FFFFFF' : '#000' },
+    contentText: { ...styles.contentText, color: isDark ? '#E0E0E0' : '#000' },
+    optionsMenu: { ...styles.optionsMenu, backgroundColor: isDark ? '#2E2E2E' : '#fff' },
+    optionText: { ...styles.optionText, color: isDark ? '#E0E0E0' : '#333' },
+    fullTextModalCard: { ...styles.fullTextModalCard, backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF' },
+    fullTextModalTitle: { ...styles.fullTextModalTitle, color: isDark ? '#FFFFFF' : '#000' },
+    fullTextModalText: { ...styles.fullTextModalText, color: isDark ? '#E0E0E0' : '#000' },
+    modalScrollView: { ...styles.modalScrollView, backgroundColor: isDark ? '#121212' : '#FFFFFF' },
+    modalContentText: { ...styles.modalContentText, color: isDark ? '#E0E0E0' : '#000' },
+  };
+
   return (
-    <View style={styles.container}>
+    <View style={dynamicStyles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
-          <Image
-            source={post.imageURL ? { uri: post.imageURL } : require('@/assets/images/icon.png')}
-            style={styles.profileImage}
-            contentFit="cover"
-          />
+          <TouchableOpacity
+            onPress={() => {
+              if (onUserPress && post.userId) {
+                onUserPress(post.userId);
+              }
+            }}
+            activeOpacity={0.7}>
+            <Image
+              source={post.imageURL ? { uri: post.imageURL } : require('@/assets/images/icon.png')}
+              style={styles.profileImage}
+              contentFit="cover"
+            />
+          </TouchableOpacity>
           <View style={styles.userDetails}>
-            <Text style={styles.userName}>{post.userName}</Text>
-            <Text style={styles.timeAgo}>{formatDate(post.createdAt)}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                if (onUserPress && post.userId) {
+                  onUserPress(post.userId);
+                }
+              }}
+              activeOpacity={0.7}>
+              <Text style={dynamicStyles.userName}>{post.userName}</Text>
+            </TouchableOpacity>
+            <Text style={dynamicStyles.timeAgo}>{formatDate(post.createdAt)}</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.moreOptionsButton}>
-          <Ionicons name="ellipsis-vertical" size={20} color="#666" />
-        </TouchableOpacity>
+        <View style={styles.moreOptionsContainer}>
+          <TouchableOpacity 
+            style={styles.moreOptionsButton}
+            onPress={() => setShowOptionsMenu(!showOptionsMenu)}>
+            <Ionicons name="ellipsis-vertical" size={20} color={isDark ? "#CCCCCC" : "#666"} />
+          </TouchableOpacity>
+          
+          {showOptionsMenu && (
+            <View style={dynamicStyles.optionsMenu}>
+                {currentUserId === post.userId ? (
+                  <>
+                    <TouchableOpacity 
+                      style={styles.optionItem}
+                      onPress={() => {
+                        setShowOptionsMenu(false);
+                        onEdit?.(post);
+                      }}>
+                      <Ionicons name="create-outline" size={18} color="#085173" />
+                      <Text style={dynamicStyles.optionText}>تعديل</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.optionItem, styles.deleteOption]}
+                      onPress={() => {
+                        setShowOptionsMenu(false);
+                        onDelete?.(post.id);
+                      }}>
+                      <Ionicons name="trash-outline" size={18} color="#ff3b30" />
+                      <Text style={[dynamicStyles.optionText, styles.deleteText]}>حذف</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity 
+                    style={styles.optionItem}
+                    onPress={() => {
+                      setShowOptionsMenu(false);
+                      onReport?.(post.id);
+                    }}>
+                    <Ionicons name="flag-outline" size={18} color="#ff9500" />
+                    <Text style={dynamicStyles.optionText}>الإبلاغ عن المنشور</Text>
+                  </TouchableOpacity>
+                )}
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Title */}
       {post.title && (
         <View style={styles.contentContainer}>
-          <Text style={styles.titleText}>{post.title}</Text>
+          <Text style={dynamicStyles.titleText}>{post.title}</Text>
         </View>
       )}
 
       {/* Content */}
       {hasContent && (
         <View style={styles.contentContainer}>
-          <Text style={styles.contentText} numberOfLines={3}>
+          <Text style={dynamicStyles.contentText} numberOfLines={isContentExpanded ? undefined : 3}>
             {stripHtml(post.content)}
           </Text>
+          {isContentLong && !isContentExpanded && (
+            <TouchableOpacity 
+              onPress={() => setIsContentExpanded(true)}
+              style={styles.moreButton}>
+              <Text style={styles.moreButtonText}>المزيد</Text>
+            </TouchableOpacity>
+          )}
+          {isContentExpanded && isContentLong && (
+            <TouchableOpacity 
+              onPress={() => setIsContentExpanded(false)}
+              style={styles.moreButton}>
+              <Text style={styles.moreButtonText}>عرض أقل</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -544,13 +921,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post, onLike, onComment, onS
       <View style={styles.actionsContainer}>
         <View style={styles.actionsLeft}>
           <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post.id)}>
-            <Ionicons name="arrow-up" size={20} color="#666" />
+            <Ionicons name="arrow-up" size={20} color={isDark ? "#CCCCCC" : "#666"} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.commentButtonContainer}
             onPress={() => onComment(post.id)}
             activeOpacity={0.7}>
-            <Ionicons name="chatbubble-outline" size={20} color="#666" />
+            <Ionicons name="chatbubble-outline" size={20} color={isDark ? "#CCCCCC" : "#666"} />
             {post.numberComment !== undefined && post.numberComment > 0 && (
               <Text style={styles.commentCount}>{post.numberComment}</Text>
             )}
@@ -620,8 +997,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
+  moreOptionsContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
   moreOptionsButton: {
     padding: 4,
+  },
+  optionsMenu: {
+    position: 'absolute',
+    top: 30,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 4,
+    minWidth: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    zIndex: 1001,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  deleteOption: {
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  optionText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  deleteText: {
+    color: '#ff3b30',
   },
   contentContainer: {
     paddingHorizontal: 16,
@@ -637,6 +1051,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#000',
     lineHeight: 22,
+    textAlign: 'right',
   },
   mediaContainer: {
     marginTop: 8,
@@ -648,10 +1063,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#F5F5F5',
+    position: 'relative',
   },
   singleImage: {
     width: '100%',
     height: '100%',
+  },
+  videoThumbnailContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
   },
   twoImagesContainer: {
     flexDirection: 'row',
@@ -787,9 +1208,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000',
   },
+  modalVideo: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.65,
+  },
   videoPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  videoPlaceholderText: {
     color: '#fff',
     fontSize: 16,
+    marginTop: 12,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  videoPlaceholderSubtext: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
   modalDotsIndicator: {
     flexDirection: 'row',

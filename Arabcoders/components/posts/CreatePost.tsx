@@ -2,28 +2,37 @@ import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '@/contexts/ThemeContext';
 
 interface CreatePostProps {
   profileImage?: string;
   imageUrl?: string;
   onCreatePost: () => void;
   onSelectImage?: () => void;
+  onSelectVideo?: () => void;
 }
 
-export const CreatePost: React.FC<CreatePostProps> = ({ profileImage, imageUrl, onCreatePost, onSelectImage }) => {
+export const CreatePost: React.FC<CreatePostProps> = ({ profileImage, imageUrl, onCreatePost, onSelectImage, onSelectVideo }) => {
+  const { isDark } = useTheme();
   // Use imageUrl from user data, fallback to profileImage, then default icon
   const userImage = imageUrl || profileImage;
   
+  const dynamicStyles = {
+    container: { ...styles.container, backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF', borderBottomColor: isDark ? '#333333' : '#E5E5E5' },
+    input: { ...styles.input, backgroundColor: isDark ? '#2E2E2E' : '#F5F5F5', color: isDark ? '#FFFFFF' : '#000' },
+    optionText: { ...styles.optionText, color: isDark ? '#E0E0E0' : '#333' },
+  };
+  
   return (
-    <View style={styles.container}>
+    <View style={dynamicStyles.container}>
       <TouchableOpacity 
         style={styles.inputContainer}
         onPress={onCreatePost}
         activeOpacity={0.7}>
         <TextInput
-          style={styles.input}
+          style={dynamicStyles.input}
           placeholder="ما الذي يدور في ذهنك؟"
-          placeholderTextColor="#999"
+          placeholderTextColor={isDark ? '#888' : '#999'}
           multiline
           editable={false}
           pointerEvents="none"
@@ -35,19 +44,17 @@ export const CreatePost: React.FC<CreatePostProps> = ({ profileImage, imageUrl, 
         />
       </TouchableOpacity>
       <View style={styles.optionsContainer}>
-        <TouchableOpacity style={styles.option}>
-          <Text style={styles.optionEmoji}>😊</Text>
-          <Text style={styles.optionText}>مشاعر أنشطة</Text>
-        </TouchableOpacity>
         <TouchableOpacity 
           style={styles.option}
           onPress={onSelectImage}>
-          <Ionicons name="camera" size={20} color="#4CAF50" />
-          <Text style={styles.optionText}>صورا فيديو</Text>
+          <Text style={dynamicStyles.optionText}>صور</Text>
+          <Ionicons name="images-outline" size={20} color="#4CAF50" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.option}>
-          <Ionicons name="videocam" size={20} color="#FF3B30" />
-          <Text style={styles.optionText}>بت مباشر</Text>
+        <TouchableOpacity 
+          style={styles.option}
+          onPress={onSelectVideo}>
+          <Text style={dynamicStyles.optionText}>فيديو</Text>
+          <Ionicons name="videocam-outline" size={20} color="#FF3B30" />
         </TouchableOpacity>
       </View>
     </View>
@@ -86,16 +93,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   optionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
     paddingTop: 8,
+    width: '100%',
   },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     paddingVertical: 8,
     paddingHorizontal: 12,
+    flex: 1,
   },
   optionEmoji: {
     fontSize: 20,

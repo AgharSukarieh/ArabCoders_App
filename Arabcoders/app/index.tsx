@@ -25,34 +25,96 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import { useRegister, useLogin, usePasswordReset } from '@/hooks/useAuth';
 import { getRememberedCredentials } from '@/services/storage';
-import { getCountries as fetchCountriesAPI } from '@/services/authService';
+import { getCountries as fetchCountriesAPI, getUniversities as fetchUniversitiesAPI } from '@/services/authService';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// طباعة أبعاد الشاشة على Android
+if (Platform.OS === 'android') {
+  console.log('📱 Android Screen Dimensions:');
+  console.log(`   Width: ${SCREEN_WIDTH}px`);
+  console.log(`   Height: ${SCREEN_HEIGHT}px`);
+  console.log(`   Resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
+}
+
+// Responsive helper functions
+const wp = (percentage: number) => (SCREEN_WIDTH * percentage) / 100;
+const hp = (percentage: number) => (SCREEN_HEIGHT * percentage) / 100;
+const getResponsiveFontSize = (size: number) => {
+  // للشاشات الصغيرة جداً (مثل 360x800)
+  if (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800) {
+    const scale = SCREEN_WIDTH / 375;
+    const scaled = size * Math.min(scale, 0.85); // تصغير بنسبة 15%
+    return Math.max(11, Math.min(scaled, size * 0.85));
+  }
+  // للشاشات الطويلة جداً (مثل Honor X5 1600x720)
+  if (Platform.OS === 'android' && SCREEN_HEIGHT > 1500) {
+    const scale = SCREEN_WIDTH / 375;
+    const scaled = size * Math.min(scale, 0.9); // تصغير بنسبة 10%
+    return Math.max(10, Math.min(scaled, size * 0.9));
+  }
+  // استخدام حساب أفضل يعتمد على كل من العرض والارتفاع
+  const widthScale = SCREEN_WIDTH / 375;
+  const heightScale = SCREEN_HEIGHT / 800; // استخدام 800 كقيمة مرجعية
+  const combinedScale = (widthScale + heightScale) / 2; // متوسط القيمتين
+  const scaled = size * Math.min(combinedScale, 1.4); // زيادة الحد الأقصى قليلاً
+  return Math.max(12, Math.min(scaled, size * 1.4));
+};
+
+const getResponsiveValue = (small: number, medium: number, large: number) => {
+  // استخدام حساب ديناميكي أفضل للشاشات المختلفة
+  // 360x800: شاشة صغيرة جداً (مثل بعض أجهزة Android القديمة)
+  // Samsung A15: ~800-900px height
+  // Honor X5: ~950-1050px height (أكبر قليلاً)
+  
+  if (SCREEN_HEIGHT < 750 || (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800)) {
+    // شاشات صغيرة جداً (مثل 360x800)
+    return small * 0.9; // تصغير بنسبة 10% للشاشات الصغيرة جداً
+  } else if (SCREEN_HEIGHT < 950) {
+    // شاشات متوسطة (مثل Samsung A15)
+    return medium;
+  } else {
+    // شاشات كبيرة (مثل Honor X5)
+    // حساب ديناميكي للشاشات الكبيرة لضمان التوافق
+    const scaleFactor = Math.min((SCREEN_HEIGHT - 950) / 150, 0.2); // زيادة تصل إلى 20%
+    return large * (1 + scaleFactor);
+  }
+};
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  
   const [isFlipped, setIsFlipped] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [countries, setCountries] = useState<Array<{ id: number; nameCountry: string; iconUrl: string }>>([]);
+  const [universities, setUniversities] = useState<Array<{ id: number; nameUniversity: string; imageUrl?: string }>>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
+  const [loadingUniversities, setLoadingUniversities] = useState(false);
+  const [showUniversityDropdown, setShowUniversityDropdown] = useState(false);
   const countryModalOpacity = useSharedValue(0);
-  const countryModalTranslateY = useSharedValue(SCREEN_WIDTH);
+  const countryModalTranslateY = useSharedValue(SCREEN_HEIGHT);
+  const universityModalOpacity = useSharedValue(0);
+  const universityModalTranslateY = useSharedValue(SCREEN_HEIGHT);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     username: '',
     profilePicture: '',
     country: '',
+    university: '',
   });
   const [selectedCountryId, setSelectedCountryId] = useState<number | null>(null);
+  const [selectedUniversityId, setSelectedUniversityId] = useState<number | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
-  const [forgotPasswordStep, setForgotPasswordStep] = useState(1); // 1: email, 2: otp, 3: new password
+  const [forgotPasswordStep, setForgotPasswordStep] = useState(1);
   const [forgotPasswordOtp, setForgotPasswordOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [imageFile, setImageFile] = useState<any>(null);
@@ -63,24 +125,131 @@ export default function LoginScreen() {
   const { loading: resetLoading, otpSent: resetOtpSent, resendCooldown: resetResendCooldown, handleSendOtp: handleResetSendOtp, handleResendOtp: handleResetResendOtp, handleConfirmPasswordReset } = usePasswordReset();
 
   const flipRotation = useSharedValue(0);
-  const cardHeight = useSharedValue(400);
-  const logoScale = useSharedValue(1.5);
+  const getInitialCardHeight = () => {
+    if (Platform.OS === 'android') {
+      // للشاشات الصغيرة جداً مثل 360x800
+      if (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800) {
+        const baseCardHeight = SCREEN_HEIGHT * 0.48; // تحسين النسبة ليتوافق مع باقي الشاشات
+        const minCardHeight = 380;
+        return Math.max(minCardHeight, baseCardHeight);
+      } else if (SCREEN_HEIGHT > 1500) {
+        // للشاشات الطويلة جداً مثل Honor X5 (1600x720)
+        const baseCardHeight = SCREEN_HEIGHT * 0.35; // أصغر للشاشات الطويلة
+        const minCardHeight = 300;
+        return Math.max(minCardHeight, baseCardHeight);
+      }
+      const baseCardHeight = getResponsiveValue(
+        SCREEN_HEIGHT * 0.50,
+        SCREEN_HEIGHT * 0.50,
+        SCREEN_HEIGHT * 0.45
+      );
+      const minCardHeight = getResponsiveValue(340, 380, 420);
+      return Math.max(minCardHeight, baseCardHeight);
+    } else {
+      const baseCardHeight = getResponsiveValue(
+        SCREEN_HEIGHT * 0.5,
+        SCREEN_HEIGHT * 0.45,
+        SCREEN_HEIGHT * 0.4
+      );
+      const minCardHeight = getResponsiveValue(350, 400, 450);
+      return Math.max(minCardHeight, baseCardHeight);
+    }
+  };
+  const cardHeight = useSharedValue(getInitialCardHeight());
+  const logoScale = useSharedValue(getResponsiveValue(1.3, 1.4, 1.5));
+  const logoTranslateY = useSharedValue(0);
   const cardTranslateY = useSharedValue(0);
   const socialSectionOpacity = useSharedValue(1);
-  const inputWidth = useSharedValue(4);
-  const createAccountLinkTranslateY = useSharedValue(-50);
   const [cardOpened, setCardOpened] = useState(false);
   const forgotPasswordModalOpacity = useSharedValue(0);
   const forgotPasswordModalTranslateX = useSharedValue(SCREEN_WIDTH);
   const forgotPasswordModalTranslateY = useSharedValue(0);
 
   const flipCard = () => {
-    setIsFlipped(!isFlipped);
-    flipRotation.value = withTiming(isFlipped ? 0 : 180, { duration: 600 });
-    cardHeight.value = withTiming(isFlipped ? 400 : 600, { duration: 600 });
-    logoScale.value = withTiming(isFlipped ? 1.5 : 1.3, { duration: 600 });
-    cardTranslateY.value = withTiming(isFlipped ? 0 : -30, { duration: 600 });
-    socialSectionOpacity.value = withTiming(isFlipped ? 1 : 0, { duration: 600 });
+    const newIsFlipped = !isFlipped;
+    setIsFlipped(newIsFlipped);
+    let baseCardHeight, signupCardHeight, minCardHeight, maxCardHeight;
+    
+    if (Platform.OS === 'android') {
+      // للشاشات الصغيرة جداً مثل 360x800
+      if (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800) {
+        baseCardHeight = SCREEN_HEIGHT * 0.48; // نفس نسبة getInitialCardHeight
+        signupCardHeight = SCREEN_HEIGHT * 0.75; // زيادة ارتفاع كارت التسجيل
+        minCardHeight = 380;
+        maxCardHeight = 620; // زيادة الحد الأقصى
+      } else if (SCREEN_HEIGHT > 1500) {
+        // للشاشات الطويلة جداً مثل Honor X5 (1600x720)
+        baseCardHeight = SCREEN_HEIGHT * 0.35; // أصغر للشاشات الطويلة
+        signupCardHeight = SCREEN_HEIGHT * 0.60; // زيادة ارتفاع كارت التسجيل
+        minCardHeight = 300;
+        maxCardHeight = 800;
+      } else {
+        baseCardHeight = getResponsiveValue(
+          SCREEN_HEIGHT * 0.50,
+          SCREEN_HEIGHT * 0.50,
+          SCREEN_HEIGHT * 0.45
+        );
+        signupCardHeight = getResponsiveValue(
+          SCREEN_HEIGHT * 0.75,
+          SCREEN_HEIGHT * 0.75,
+          SCREEN_HEIGHT * 0.70
+        );
+        minCardHeight = getResponsiveValue(340, 380, 420);
+        maxCardHeight = getResponsiveValue(770, 870, 970);
+      }
+    } else {
+      baseCardHeight = getResponsiveValue(
+        SCREEN_HEIGHT * 0.5,
+        SCREEN_HEIGHT * 0.45,
+        SCREEN_HEIGHT * 0.4
+      );
+      signupCardHeight = getResponsiveValue(
+        SCREEN_HEIGHT * 0.75,
+        SCREEN_HEIGHT * 0.70,
+        SCREEN_HEIGHT * 0.65
+      );
+      minCardHeight = getResponsiveValue(350, 400, 450);
+      maxCardHeight = getResponsiveValue(750, 800, 850);
+    }
+    
+    const animationDuration = Platform.OS === 'android' ? 300 : 600;
+    
+    flipRotation.value = withTiming(newIsFlipped ? 180 : 0, { duration: animationDuration });
+    cardHeight.value = withTiming(
+      newIsFlipped 
+        ? Math.min(maxCardHeight, signupCardHeight)
+        : Math.max(minCardHeight, baseCardHeight), 
+      { duration: animationDuration }
+    );
+    if (Platform.OS === 'android') {
+      logoScale.value = withTiming(
+        newIsFlipped 
+          ? getResponsiveValue(1.3, 1.4, 1.5)  // أكبر عندما يكون Register
+          : getResponsiveValue(0.75, 0.8, 0.85),  // أصغر للـ Login
+        { duration: animationDuration }
+      );
+      logoTranslateY.value = withTiming(
+        newIsFlipped ? getResponsiveValue(-35, -40, -45) : 0,  // رفع اللوجو أكثر لأعلى
+        { duration: animationDuration }
+      );
+      cardTranslateY.value = withTiming(
+        newIsFlipped ? getResponsiveValue(-40, -45, -50) : 0,  // رفع الكارت أكثر لأعلى
+        { duration: animationDuration }
+      );
+    } else {
+      logoScale.value = withTiming(
+        newIsFlipped 
+          ? getResponsiveValue(1.1, 1.2, 1.3)  // أصغر عندما يكون Register
+          : getResponsiveValue(1.3, 1.4, 1.5),  // أكبر للـ Login
+        { duration: animationDuration }
+      );
+      logoTranslateY.value = withTiming(0, { duration: animationDuration });
+      cardTranslateY.value = withTiming(
+        newIsFlipped ? 0 : getResponsiveValue(0, 5, 0), 
+        { duration: animationDuration }
+      );
+    }
+    socialSectionOpacity.value = withTiming(newIsFlipped ? 0 : 1, { duration: animationDuration });
   };
 
   const containerAnimatedStyle = useAnimatedStyle(() => {
@@ -92,11 +261,30 @@ export default function LoginScreen() {
 
   const logoAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ scale: logoScale.value }],
+      transform: [
+        { scale: logoScale.value },
+        { translateY: logoTranslateY.value },
+      ],
     };
   });
 
-  // Load remembered email and password
+  // طباعة أبعاد الشاشة عند تحميل الصفحة على Android
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const isSmallScreen = SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800;
+      console.log('═══════════════════════════════════════');
+      console.log('📱 Android Login Screen Dimensions:');
+      console.log(`   Width: ${SCREEN_WIDTH}px`);
+      console.log(`   Height: ${SCREEN_HEIGHT}px`);
+      console.log(`   Resolution: ${SCREEN_WIDTH}x${SCREEN_HEIGHT}`);
+      console.log(`   Aspect Ratio: ${(SCREEN_WIDTH / SCREEN_HEIGHT).toFixed(2)}`);
+      console.log(`   Screen Type: ${isSmallScreen ? 'Small (360x800)' : SCREEN_HEIGHT > 1500 ? 'Large (Honor X5)' : 'Medium'}`);
+      console.log(`   Initial Card Height: ${getInitialCardHeight()}px`);
+      console.log('═══════════════════════════════════════');
+    }
+  }, []);
+
+  // Load remembered credentials
   useEffect(() => {
     getRememberedCredentials().then((data) => {
       if (data?.email && data?.password) {
@@ -107,7 +295,6 @@ export default function LoginScreen() {
         }));
         setRememberMe(true);
       } else if (data?.email) {
-        // للتوافق مع البيانات القديمة
         setFormData(prev => ({ ...prev, email: data.email }));
         setRememberMe(true);
       }
@@ -131,29 +318,17 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    // Start all animations when card first opens
     if (!cardOpened) {
       setCardOpened(true);
-      // Start all animations together when card opens
-      inputWidth.value = withTiming(100, { duration: 800, easing: Easing.out(Easing.ease) });
-      createAccountLinkTranslateY.value = withTiming(0, { duration: 600, easing: Easing.out(Easing.ease) });
+      const baseCardHeight = getResponsiveValue(
+        SCREEN_HEIGHT * 0.5,
+        SCREEN_HEIGHT * 0.45,
+        SCREEN_HEIGHT * 0.4
+      );
+      const minCardHeight = getResponsiveValue(350, 400, 450);
+      cardHeight.value = Math.max(minCardHeight, baseCardHeight);
     }
   }, []);
-
-  const inputAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      width: `${inputWidth.value}%`,
-      alignSelf: 'flex-end',
-    };
-  });
-
-  const passwordInputAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      width: `${inputWidth.value}%`,
-      alignSelf: 'flex-end',
-      overflow: 'hidden',
-    };
-  });
 
   const socialSectionAnimatedStyle = useAnimatedStyle(() => {
     const isVisible = socialSectionOpacity.value > 0;
@@ -166,26 +341,25 @@ export default function LoginScreen() {
     };
   });
 
-  const createAccountLinkAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: createAccountLinkTranslateY.value }],
-      opacity: interpolate(createAccountLinkTranslateY.value, [-50, 0], [0, 1]),
-    };
-  });
-
   const frontAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipRotation.value, [0, 180], [0, 180]);
+    const isVisible = flipRotation.value < 90;
     return {
       transform: [{ rotateY: `${rotateY}deg` }],
       opacity: interpolate(flipRotation.value, [0, 90, 90, 180], [1, 1, 0, 0]),
+      zIndex: isVisible ? 100 : -1,
+      elevation: isVisible ? 100 : -1,
     };
   });
 
   const backAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipRotation.value, [0, 180], [180, 360]);
+    const isVisible = flipRotation.value >= 90;
     return {
       transform: [{ rotateY: `${rotateY}deg` }],
       opacity: interpolate(flipRotation.value, [0, 90, 90, 180], [0, 0, 1, 1]),
+      zIndex: isVisible ? 100 : -1,
+      elevation: isVisible ? 100 : -1,
     };
   });
 
@@ -216,6 +390,23 @@ export default function LoginScreen() {
     return {
       opacity: countryModalOpacity.value,
       transform: [{ translateY: countryModalTranslateY.value }],
+      zIndex: Platform.OS === 'ios' ? 10000 : 10000,
+      elevation: Platform.OS === 'android' ? 10000 : 0,
+    };
+  });
+
+  const universityModalOverlayStyle = useAnimatedStyle(() => {
+    return {
+      opacity: universityModalOpacity.value,
+      zIndex: Platform.OS === 'ios' ? 9998 : 9998,
+      elevation: Platform.OS === 'android' ? 9998 : 0,
+    };
+  });
+
+  const universityModalStyle = useAnimatedStyle(() => {
+    return {
+      opacity: universityModalOpacity.value,
+      transform: [{ translateY: universityModalTranslateY.value }],
       zIndex: Platform.OS === 'ios' ? 10000 : 10000,
       elevation: Platform.OS === 'android' ? 10000 : 0,
     };
@@ -281,14 +472,12 @@ export default function LoginScreen() {
   }, [showForgotPassword]);
 
   const pickImage = async () => {
-    // Request permission
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       alert('نحتاج إلى إذن للوصول إلى الصور!');
       return;
     }
 
-    // Launch image picker
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -301,7 +490,6 @@ export default function LoginScreen() {
       const fileName = imageUri.split('/').pop() || 'image.png';
       setFormData({ ...formData, profilePicture: fileName });
       
-      // Save image file for API
       setImageFile({
         uri: imageUri,
         type: 'image/jpeg',
@@ -339,41 +527,73 @@ export default function LoginScreen() {
     closeCountryModal();
   };
 
-  // Login Handler
+  const fetchUniversities = async () => {
+    if (universities.length > 0) {
+      setShowUniversityDropdown(true);
+      universityModalOpacity.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) });
+      universityModalTranslateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.ease) });
+      return;
+    }
+
+    setLoadingUniversities(true);
+    try {
+      const data = await fetchUniversitiesAPI();
+      setUniversities(data);
+      setShowUniversityDropdown(true);
+      universityModalOpacity.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) });
+      universityModalTranslateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.ease) });
+    } catch (error) {
+      alert('حدث خطأ في جلب الجامعات. يرجى المحاولة مرة أخرى.');
+      console.error('Error fetching universities:', error);
+    } finally {
+      setLoadingUniversities(false);
+    }
+  };
+
+  const selectUniversity = (university: { id: number; nameUniversity: string; imageUrl?: string }) => {
+    setFormData({ ...formData, university: university.nameUniversity });
+    setSelectedUniversityId(university.id);
+    closeUniversityModal();
+  };
+
+  const closeUniversityModal = () => {
+    universityModalOpacity.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) });
+    universityModalTranslateY.value = withTiming(SCREEN_HEIGHT, { duration: 300, easing: Easing.in(Easing.ease) });
+    setTimeout(() => {
+      setShowUniversityDropdown(false);
+    }, 300);
+  };
+
   const handleLoginPress = async () => {
     const result = await handleLogin(formData.email, formData.password, rememberMe);
     if (result.success) {
-      // Navigate to home screen
       router.replace('/home' as any);
     }
   };
 
-  // Signup Handler
   const handleSignupPress = async () => {
     if (!otpSent) {
-      // Send OTP
       const result = await handleSendOtp(
         formData.email,
         formData.username,
         formData.password,
         selectedCountryId || 0,
-        imageFile
+        imageFile,
+        selectedUniversityId || 0
       );
       if (result.success) {
         setShowOtpModal(true);
       }
     } else {
-      // Verify OTP and Register
       const result = await handleVerifyOtpAndRegister(otpCode);
       if (result.success) {
         setShowOtpModal(false);
         setOtpCode('');
-        flipCard(); // Go back to login
+        flipCard();
       }
     }
   };
 
-  // Forgot Password Handler
   const handleForgotPasswordSend = async () => {
     const result = await handleResetSendOtp(formData.email);
     if (result.success) {
@@ -401,7 +621,7 @@ export default function LoginScreen() {
 
   const closeCountryModal = () => {
     countryModalOpacity.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) });
-    countryModalTranslateY.value = withTiming(SCREEN_WIDTH, { duration: 300, easing: Easing.in(Easing.ease) });
+    countryModalTranslateY.value = withTiming(SCREEN_HEIGHT, { duration: 300, easing: Easing.in(Easing.ease) });
     setTimeout(() => {
       setShowCountryDropdown(false);
     }, 300);
@@ -409,19 +629,40 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      style={[styles.container, { paddingTop: Platform.OS === 'android' ? 0 : insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      enabled={Platform.OS === 'ios'}>
       <StatusBar style="light" />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { 
+            paddingBottom: Math.max(insets.bottom, 20),
+            paddingTop: Platform.OS === 'android' ? getResponsiveValue(10, 15, 20) : getResponsiveValue(-10, -5, 0)
+          }
+        ]}
         showsVerticalScrollIndicator={false}
-        style={styles.scrollView}>
+        style={styles.scrollView}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled={true}>
+        
         {/* Logo Section */}
         <View style={styles.logoContainer}>
           <Animated.View style={logoAnimatedStyle}>
             <Image
               source={require('@/assets/images/logo_app.png')}
-              style={styles.logoImage}
+              style={[
+                styles.logoImage,
+                {
+                  width: wp(getResponsiveValue(55, 60, 65)),
+                  height: hp(getResponsiveValue(12, 14, 16)),
+                  maxWidth: getResponsiveValue(230, 260, 280),
+                  maxHeight: getResponsiveValue(95, 110, 125),
+                  minWidth: 190,
+                  minHeight: 80,
+                }
+              ]}
               contentFit="contain"
             />
           </Animated.View>
@@ -430,10 +671,13 @@ export default function LoginScreen() {
         {/* Flip Card Container */}
         <Animated.View style={[styles.cardContainer, containerAnimatedStyle]}>
           {/* Front Card - Login */}
-          <Animated.View style={[styles.card, styles.cardFront, frontAnimatedStyle]}>
+          <Animated.View 
+            style={[styles.card, styles.cardFront, frontAnimatedStyle]}
+            pointerEvents={isFlipped ? 'none' : 'auto'}>
             <View style={styles.cardContent}>
-              <Text style={styles.label}>البريد الالكتروني</Text>
-              <Animated.View style={inputAnimatedStyle}>
+              {/* Email Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>البريد الالكتروني</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.email}
@@ -444,20 +688,12 @@ export default function LoginScreen() {
                   autoCapitalize="none"
                   returnKeyType="next"
                 />
-              </Animated.View>
+              </View>
 
-              <Text style={styles.label}>كلمة السر</Text>
-              <Animated.View style={passwordInputAnimatedStyle}>
-                <View style={styles.passwordContainer}>
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeIcon}>
-                    <Ionicons
-                      name={showPassword ? 'eye' : 'eye-off'}
-                      size={20}
-                      color="#666"
-                    />
-                  </TouchableOpacity>
+              {/* Password Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>كلمة السر</Text>
+                <View style={styles.passwordWrapper}>
                   <TextInput
                     style={styles.passwordInput}
                     value={formData.password}
@@ -466,9 +702,20 @@ export default function LoginScreen() {
                     placeholderTextColor="#999"
                     secureTextEntry={!showPassword}
                     returnKeyType="done"
+                    onSubmitEditing={handleLoginPress}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeIconButton}
+                    activeOpacity={0.7}>
+                    <Ionicons
+                      name={showPassword ? 'eye' : 'eye-off'}
+                      size={20}
+                      color="#666"
+                    />
+                  </TouchableOpacity>
                 </View>
-              </Animated.View>
+              </View>
 
               <View style={styles.optionsRow}>
                 <TouchableOpacity onPress={openForgotPassword}>
@@ -499,52 +746,52 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
 
-                    <Animated.View style={createAccountLinkAnimatedStyle}>
-                      <TouchableOpacity onPress={flipCard} style={styles.createAccountLink}>
-                        <Text>
-                          <Text style={styles.linkTextBlack}>ليس لديك حساب؟ </Text>
-                          <Text style={styles.linkTextBlue}>انشاء حساب</Text>
-                        </Text>
-                      </TouchableOpacity>
-                    </Animated.View>
+              <TouchableOpacity onPress={flipCard} style={styles.createAccountLink}>
+                <Text>
+                  <Text style={styles.linkTextBlack}>ليس لديك حساب؟ </Text>
+                  <Text style={styles.linkTextBlue}>انشاء حساب</Text>
+                </Text>
+              </TouchableOpacity>
             </View>
           </Animated.View>
 
           {/* Back Card - Signup */}
-          <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
+          <Animated.View 
+            style={[styles.card, styles.cardBack, backAnimatedStyle]}
+            pointerEvents={isFlipped ? 'auto' : 'none'}>
             <View style={styles.cardContent}>
-              <Text style={styles.label}>اسم المستخدم</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.username}
-                onChangeText={(text) => setFormData({ ...formData, username: text })}
-                placeholder="ahar"
-                placeholderTextColor="#999"
-              />
+              {/* Username Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>اسم المستخدم</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.username}
+                  onChangeText={(text) => setFormData({ ...formData, username: text })}
+                  placeholder="ahar"
+                  placeholderTextColor="#999"
+                  returnKeyType="next"
+                />
+              </View>
 
-              <Text style={styles.label}>البريد الالكتروني</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.email}
-                onChangeText={(text) => setFormData({ ...formData, email: text })}
-                placeholder="alaghrs@gmail.com"
-                placeholderTextColor="#999"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              {/* Email Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>البريد الالكتروني</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.email}
+                  onChangeText={(text) => setFormData({ ...formData, email: text })}
+                  placeholder="alaghrs@gmail.com"
+                  placeholderTextColor="#999"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  returnKeyType="next"
+                />
+              </View>
 
-              <Text style={styles.label}>كلمة السر</Text>
-              <Animated.View style={passwordInputAnimatedStyle}>
-                <View style={styles.passwordContainer}>
-                  <TouchableOpacity
-                    onPress={() => setShowSignupPassword(!showSignupPassword)}
-                    style={styles.eyeIcon}>
-                    <Ionicons
-                      name={showSignupPassword ? 'eye' : 'eye-off'}
-                      size={20}
-                      color="#666"
-                    />
-                  </TouchableOpacity>
+              {/* Password Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>كلمة السر</Text>
+                <View style={styles.passwordWrapper}>
                   <TextInput
                     style={styles.passwordInput}
                     value={formData.password}
@@ -552,12 +799,24 @@ export default function LoginScreen() {
                     placeholder="كلمة السر"
                     placeholderTextColor="#999"
                     secureTextEntry={!showSignupPassword}
+                    returnKeyType="next"
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowSignupPassword(!showSignupPassword)}
+                    style={styles.eyeIconButton}
+                    activeOpacity={0.7}>
+                    <Ionicons
+                      name={showSignupPassword ? 'eye' : 'eye-off'}
+                      size={20}
+                      color="#666"
+                    />
+                  </TouchableOpacity>
                 </View>
-              </Animated.View>
+              </View>
 
-              <Text style={styles.label}>الصورة الشخصية</Text>
-              <Animated.View style={inputAnimatedStyle}>
+              {/* Profile Picture Field */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>الصورة الشخصية</Text>
                 <View style={styles.filePickerContainer}>
                   <TextInput
                     style={styles.fileInput}
@@ -570,20 +829,38 @@ export default function LoginScreen() {
                     <Text style={styles.fileButtonText}>اختيار ملف</Text>
                   </TouchableOpacity>
                 </View>
-              </Animated.View>
+              </View>
 
-              <Text style={styles.label}>اختر الدولة</Text>
-              <Animated.View style={inputAnimatedStyle}>
-                <TouchableOpacity
-                  style={styles.countryButton}
-                  onPress={fetchCountries}
-                  activeOpacity={0.7}>
-                  <Text style={[styles.countryButtonText, !formData.country && styles.countryButtonPlaceholder]}>
-                    {formData.country || 'الأردن'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color="#666" style={styles.dropdownIcon} />
-                </TouchableOpacity>
-              </Animated.View>
+              {/* Country and University Fields Row */}
+              <View style={styles.countryUniversityRow}>
+                {/* Country Field */}
+                <View style={[styles.fieldContainer, styles.halfWidth]}>
+                  <Text style={styles.label}>اختر الدولة</Text>
+                  <TouchableOpacity
+                    style={styles.countryButton}
+                    onPress={fetchCountries}
+                    activeOpacity={0.7}>
+                    <Text style={[styles.countryButtonText, !formData.country && styles.countryButtonPlaceholder]} numberOfLines={1} ellipsizeMode="tail">
+                      {formData.country || 'الأردن'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color="#666" style={styles.dropdownIcon} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* University Field */}
+                <View style={[styles.fieldContainer, styles.halfWidth]}>
+                  <Text style={styles.label}>اختر الجامعة</Text>
+                  <TouchableOpacity
+                    style={styles.countryButton}
+                    onPress={fetchUniversities}
+                    activeOpacity={0.7}>
+                    <Text style={[styles.countryButtonText, !formData.university && styles.countryButtonPlaceholder]} numberOfLines={1} ellipsizeMode="tail">
+                      {formData.university || 'اختر الجامعة'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color="#666" style={styles.dropdownIcon} />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
               <TouchableOpacity 
                 style={[styles.signupButton, registerLoading && styles.buttonDisabled]} 
@@ -608,47 +885,13 @@ export default function LoginScreen() {
           </Animated.View>
         </Animated.View>
 
-        {/* Social Login Section */}
-        <Animated.View style={[styles.socialSection, socialSectionAnimatedStyle]}>
-          <View style={styles.separator}>
-            <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>أو</Text>
-            <View style={styles.separatorLine} />
-          </View>
-
-          <Text style={styles.socialLoginText}>سجل الدخول باستخدام</Text>
-
-          <View style={styles.socialButtons}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('@/assets/icons/likedin.png')}
-                style={styles.socialIcon}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Image
-                source={require('@/assets/icons/gmail.png')}
-                style={styles.gmailIcon}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-apple" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-
       </ScrollView>
       
       {/* Legal Text - Fixed at bottom */}
-      <View style={styles.legalContainer}>
+      <View style={[styles.legalContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <Text style={styles.legalText}>بتسجيل الدخول،أنت </Text>
         <Text style={styles.legalText}>
-        
-        
-           
-           توافق على{' '}
+          توافق على{' '}
           <Text 
             style={styles.legalLink}
             onPress={() => router.push('/terms' as any)}>
@@ -702,6 +945,62 @@ export default function LoginScreen() {
                 ) : (
                   <View style={styles.countryModalItem}>
                     <Text style={styles.countryModalItemText}>لا توجد دول متاحة</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </Animated.View>
+        </>
+      )}
+
+      {/* University Selection Modal */}
+      {showUniversityDropdown && (
+        <>
+          <Animated.View 
+            style={[styles.modalOverlay, universityModalOverlayStyle]}
+            pointerEvents="box-none">
+            <TouchableOpacity 
+              style={styles.overlayTouchable}
+              activeOpacity={1}
+              onPress={closeUniversityModal}
+            />
+          </Animated.View>
+          <Animated.View style={[styles.countryModal, universityModalStyle]}>
+            <View style={styles.countryModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>اختر الجامعة</Text>
+                <TouchableOpacity onPress={closeUniversityModal} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.separatorLineDark} />
+              <ScrollView style={styles.countryModalScrollView} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                {loadingUniversities ? (
+                  <View style={styles.countryModalItem}>
+                    <ActivityIndicator size="large" color="#085173" />
+                  </View>
+                ) : universities.length > 0 ? (
+                  universities.map((university) => (
+                    <TouchableOpacity
+                      key={university.id}
+                      style={styles.countryModalItem}
+                      onPress={() => selectUniversity(university)}
+                      activeOpacity={0.7}>
+                      {university.imageUrl && (
+                        <Image
+                          source={{ uri: university.imageUrl }}
+                          style={styles.countryFlag}
+                          contentFit="contain"
+                        />
+                      )}
+                      <Text style={styles.countryModalItemText} numberOfLines={2} ellipsizeMode="tail">
+                        {university.nameUniversity}
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={styles.countryModalItem}>
+                    <Text style={styles.countryModalItemText}>لا توجد جامعات متاحة</Text>
                   </View>
                 )}
               </ScrollView>
@@ -918,22 +1217,33 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingTop: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
+    alignItems: 'center',
+    paddingHorizontal: wp(5),
+    minHeight: SCREEN_HEIGHT * 0.95,
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 70,
+    marginBottom: getResponsiveValue(15, 20, 25),
     justifyContent: 'center',
+    position: 'absolute',
+    top: Platform.OS === 'android' ? getResponsiveValue(10, 20, 30) : getResponsiveValue(0, 10, 20),
+    left: 0,
+    right: 0,
+    zIndex: 1,
   },
   logoImage: {
-    width: 200,
-    height: 80,
+    width: wp(50),
+    height: hp(10),
+    maxWidth: 200,
+    maxHeight: 80,
   },
   cardContainer: {
     width: '100%',
-    marginBottom: 30,
+    marginBottom: getResponsiveValue(20, 25, 30),
+    marginTop: Platform.OS === 'android' ? getResponsiveValue(100, 120, 140) : getResponsiveValue(80, 100, 120),
+    maxWidth: Math.min(500, SCREEN_WIDTH * 0.95),
+    alignSelf: 'center',
+    overflow: 'visible',
   },
   card: {
     position: 'absolute',
@@ -943,8 +1253,12 @@ const styles = StyleSheet.create({
   },
   cardFront: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: (Platform.OS === 'android' && (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800)) || (Platform.OS === 'android' && SCREEN_HEIGHT > 1500)
+      ? getResponsiveValue(12, 14, 16)
+      : getResponsiveValue(16, 20, 24),
+    padding: (Platform.OS === 'android' && (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800)) || (Platform.OS === 'android' && SCREEN_HEIGHT > 1500)
+      ? getResponsiveValue(14, 16, 18)
+      : getResponsiveValue(20, 24, 28),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -953,8 +1267,12 @@ const styles = StyleSheet.create({
   },
   cardBack: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: (Platform.OS === 'android' && (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800)) || (Platform.OS === 'android' && SCREEN_HEIGHT > 1500)
+      ? getResponsiveValue(12, 14, 16)
+      : getResponsiveValue(16, 20, 24),
+    padding: (Platform.OS === 'android' && (SCREEN_WIDTH <= 360 && SCREEN_HEIGHT <= 800)) || (Platform.OS === 'android' && SCREEN_HEIGHT > 1500)
+      ? getResponsiveValue(14, 16, 18)
+      : getResponsiveValue(20, 24, 28),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -965,53 +1283,120 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
   },
+  fieldContainer: {
+    width: '100%',
+    marginBottom: Platform.OS === 'android' ? getResponsiveValue(8, 10, 12) : getResponsiveValue(6, 8, 10),
+  },
+  countryUniversityRow: {
+    flexDirection: 'row',
+    gap: getResponsiveValue(10, 12, 14),
+    width: '100%',
+  },
+  halfWidth: {
+    flex: 1,
+    minWidth: 0,
+  },
   label: {
-    fontSize: 16,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(14)
+      : getResponsiveFontSize(16),
     fontWeight: '600',
     color: '#000',
-    marginBottom: 8,
-    marginTop: 16,
+    marginBottom: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(6, 8, 10)
+      : getResponsiveValue(8, 10, 12),
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(2, 4, 6)
+      : getResponsiveValue(4, 6, 8),
     textAlign: 'right',
   },
   input: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
+    borderRadius: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 6 : 8,
+    paddingRight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 14, 16)
+      : getResponsiveValue(14, 16, 18),
+    paddingLeft: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 14, 16)
+      : getResponsiveValue(14, 16, 18),
+    paddingVertical: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : Platform.OS === 'android' ? getResponsiveValue(14, 16, 18) : getResponsiveValue(12, 14, 16),
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(14)
+      : getResponsiveFontSize(16),
     color: '#000',
     textAlign: 'right',
     width: '100%',
+    minHeight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 46 : Platform.OS === 'android' ? 54 : 48,
   },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  passwordWrapper: {
+    position: 'relative',
+    width: '100%',
+    ...(Platform.OS === 'android' && SCREEN_HEIGHT > 1500 
+      ? { height: 46 }
+      : Platform.OS === 'android' ? { height: 54 } : { minHeight: 48 }),
+  },
+  passwordInput: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    borderRadius: 8,
-  },
-  passwordInput: {
-    flex: 1,
-    padding: 12,
-    fontSize: 16,
+    borderRadius: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 6 : 8,
+    paddingLeft: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 50 : 56,
+    paddingRight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 14, 16)
+      : getResponsiveValue(14, 16, 18),
+    paddingVertical: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : Platform.OS === 'android' ? getResponsiveValue(14, 16, 18) : getResponsiveValue(12, 14, 16),
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(14)
+      : getResponsiveFontSize(16),
     color: '#000',
     textAlign: 'right',
+    width: '100%',
+    ...(Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? { 
+          height: 46,
+          includeFontPadding: false,
+          textAlignVertical: 'center',
+        }
+      : Platform.OS === 'android' 
+      ? { 
+          height: 54,
+          includeFontPadding: false,
+          textAlignVertical: 'center',
+        } 
+      : { 
+          minHeight: 48 
+        }
+    ),
   },
-  eyeIcon: {
-    padding: 12,
+  eyeIconButton: {
+    position: 'absolute',
+    left: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : getResponsiveValue(12, 14, 16),
+    top: 0,
+    bottom: 0,
+    width: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 36 : 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   optionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 24,
+    marginTop: getResponsiveValue(8, 10, 12),
+    marginBottom: getResponsiveValue(16, 20, 24),
+    flexWrap: 'wrap',
   },
   forgotPassword: {
     color: '#4A90E2',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
   },
   rememberMeContainer: {
     flexDirection: 'row',
@@ -1023,57 +1408,103 @@ const styles = StyleSheet.create({
   },
   rememberMeText: {
     color: '#000',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
   },
   loginButton: {
     backgroundColor: '#085173',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 6 : 8,
+    paddingVertical: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : getResponsiveValue(14, 16, 18),
+    paddingHorizontal: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 16, 20)
+      : getResponsiveValue(16, 20, 24),
     alignItems: 'center',
-    marginBottom: 16,
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(2, 4, 6)
+      : getResponsiveValue(4, 6, 8),
+    marginBottom: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(8, 12, 16)
+      : getResponsiveValue(12, 16, 20),
+    minHeight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 
+      ? getResponsiveValue(40, 44, 48) 
+      : getResponsiveValue(48, 50, 54),
+    width: '100%',
+    justifyContent: 'center',
   },
   loginButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(16)
+      : getResponsiveFontSize(18),
     fontWeight: '600',
   },
   signupButton: {
     backgroundColor: '#085173',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 6 : 8,
+    paddingVertical: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : getResponsiveValue(14, 16, 18),
+    paddingHorizontal: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 16, 20)
+      : getResponsiveValue(16, 20, 24),
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 16,
-    zIndex: Platform.OS === 'ios' ? 1 : 1,
-    elevation: Platform.OS === 'android' ? 1 : 0,
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(8, 12, 16)
+      : getResponsiveValue(12, 16, 20),
+    marginBottom: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(8, 12, 16)
+      : getResponsiveValue(12, 16, 20),
+    minHeight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 
+      ? getResponsiveValue(40, 44, 48) 
+      : getResponsiveValue(48, 50, 54),
+    width: '100%',
+    justifyContent: 'center',
   },
   signupButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(14)
+      : getResponsiveFontSize(18),
     fontWeight: '600',
   },
   createAccountLink: {
     alignItems: 'center',
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(-15, -15, -15)
+      : Platform.OS === 'android' ? getResponsiveValue(-10, -10, -10) : getResponsiveValue(8, 10, 12),
   },
   loginLink: {
     alignItems: 'center',
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(-15, -15, -15)
+      : Platform.OS === 'ios' 
+      ? getResponsiveValue(-12, -10, -8) 
+      : getResponsiveValue(-8, -6, -4),
   },
   linkText: {
     color: '#000',
-    fontSize: 14,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(12)
+      : getResponsiveFontSize(14),
   },
   linkTextBlack: {
     color: '#000',
-    fontSize: 14,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(12)
+      : getResponsiveFontSize(14),
   },
   linkTextBlue: {
     color: '#4A90E2',
-    fontSize: 14,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(12)
+      : getResponsiveFontSize(14),
   },
   filePickerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    width: '100%',
   },
   fileInput: {
     flex: 1,
@@ -1081,20 +1512,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
+    paddingHorizontal: getResponsiveValue(12, 14, 16),
+    paddingVertical: Platform.OS === 'android' ? getResponsiveValue(14, 16, 18) : getResponsiveValue(12, 14, 16),
+    fontSize: getResponsiveFontSize(16),
     color: '#000',
     textAlign: 'right',
+    minHeight: Platform.OS === 'android' ? 54 : 48,
   },
   fileButton: {
     backgroundColor: '#F5F5F5',
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: getResponsiveValue(14, 16, 18),
+    paddingVertical: getResponsiveValue(14, 16, 18),
+    minHeight: Platform.OS === 'android' ? 54 : 48,
+    justifyContent: 'center',
   },
   fileButtonText: {
     color: '#085173',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     fontWeight: '600',
   },
   countryButton: {
@@ -1104,14 +1539,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: getResponsiveValue(12, 14, 16),
+    paddingVertical: Platform.OS === 'android' ? getResponsiveValue(14, 16, 18) : getResponsiveValue(12, 14, 16),
     justifyContent: 'space-between',
+    minHeight: Platform.OS === 'android' ? 54 : 48,
   },
   countryButtonText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     color: '#000',
     textAlign: 'right',
     flex: 1,
+    marginRight: 8,
   },
   countryButtonPlaceholder: {
     color: '#999',
@@ -1132,37 +1570,39 @@ const styles = StyleSheet.create({
   countryModalCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
+    borderTopLeftRadius: getResponsiveValue(20, 24, 28),
+    borderTopRightRadius: getResponsiveValue(20, 24, 28),
+    padding: getResponsiveValue(20, 24, 28),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: Platform.OS === 'android' ? 10000 : 8,
-    maxHeight: '50%',
+    maxHeight: SCREEN_HEIGHT * getResponsiveValue(0.6, 0.55, 0.5),
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: '600',
     color: '#000',
     textAlign: 'right',
   },
   countryModalScrollView: {
-    maxHeight: 300,
+    maxHeight: SCREEN_HEIGHT * 0.4,
   },
   countryModalItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingVertical: getResponsiveValue(14, 16, 18),
+    paddingHorizontal: getResponsiveValue(12, 14, 16),
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
+    minHeight: getResponsiveValue(52, 56, 60),
   },
   countryFlag: {
     width: 30,
@@ -1171,19 +1611,19 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   countryModalItemText: {
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     color: '#000',
     textAlign: 'right',
     flex: 1,
   },
   socialSection: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: getResponsiveValue(20, 25, 30),
+    marginBottom: getResponsiveValue(20, 25, 30),
   },
   separator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: getResponsiveValue(12, 14, 16),
   },
   separatorLine: {
     flex: 1,
@@ -1193,26 +1633,25 @@ const styles = StyleSheet.create({
   },
   separatorText: {
     color: '#CCCCCC',
-    fontSize: 16,
+    fontSize: getResponsiveFontSize(16),
     marginHorizontal: 12,
   },
   socialLoginText: {
     color: '#CCCCCC',
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     textAlign: 'center',
-    marginTop: 0,
-    marginBottom: 16,
+    marginBottom: getResponsiveValue(16, 18, 20),
   },
   socialButtons: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 20,
-    marginTop: 15,
+    gap: getResponsiveValue(16, 20, 24),
+    paddingHorizontal: wp(5),
   },
   socialButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: getResponsiveValue(50, 54, 58),
+    height: getResponsiveValue(50, 54, 58),
+    borderRadius: getResponsiveValue(25, 27, 29),
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1223,24 +1662,29 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   socialIcon: {
-    width: 30,
-    height: 30,
+    width: getResponsiveValue(28, 30, 32),
+    height: getResponsiveValue(28, 30, 32),
   },
   gmailIcon: {
-    width: 36,
-    height: 36,
+    width: getResponsiveValue(32, 36, 40),
+    height: getResponsiveValue(32, 36, 40),
   },
   legalContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 10,
-    backgroundColor: '#085173',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: wp(5),
+    paddingBottom: getResponsiveValue(20, 25, 30),
+    paddingTop: getResponsiveValue(15, 20, 25),
+    backgroundColor: 'transparent',
+    alignItems: 'center',
   },
   legalText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: getResponsiveFontSize(12),
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: getResponsiveFontSize(18),
   },
   legalLink: {
     color: '#4A90E2',
@@ -1253,7 +1697,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 999,
+    zIndex: 9999,
+    elevation: 9999,
   },
   overlayTouchable: {
     flex: 1,
@@ -1266,59 +1711,75 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
+    zIndex: 10000,
+    elevation: 10000,
     pointerEvents: 'box-none',
   },
   modalCard: {
-    width: '90%',
-    maxWidth: 400,
+    width: SCREEN_WIDTH * getResponsiveValue(0.92, 0.9, 0.88),
+    maxWidth: getResponsiveValue(350, 400, 450),
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: getResponsiveValue(16, 20, 24),
+    padding: getResponsiveValue(24, 28, 32),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 10,
+    maxHeight: SCREEN_HEIGHT * getResponsiveValue(0.8, 0.75, 0.7),
   },
   closeButton: {
     alignSelf: 'flex-start',
-    marginBottom: 8,
+    marginBottom: getResponsiveValue(8, 10, 12),
+    padding: 4,
   },
   forgotPasswordTitle: {
-    fontSize: 20,
+    fontSize: getResponsiveFontSize(20),
     fontWeight: '600',
     color: '#000',
     textAlign: 'right',
-    marginBottom: 12,
+    marginBottom: getResponsiveValue(12, 14, 16),
   },
   separatorLineDark: {
     height: 1,
     backgroundColor: '#E0E0E0',
-    marginBottom: 20,
+    marginBottom: getResponsiveValue(16, 20, 24),
   },
   instructionText: {
-    fontSize: 14,
+    fontSize: getResponsiveFontSize(14),
     color: '#666',
     textAlign: 'right',
-    marginTop: 12,
-    marginBottom: 24,
-    lineHeight: 20,
+    marginTop: getResponsiveValue(12, 14, 16),
+    marginBottom: getResponsiveValue(20, 24, 28),
+    lineHeight: getResponsiveFontSize(20),
   },
   sendButton: {
     backgroundColor: '#085173',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 ? 6 : 8,
+    paddingVertical: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(10, 12, 14)
+      : getResponsiveValue(14, 16, 18),
+    paddingHorizontal: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(12, 16, 20)
+      : getResponsiveValue(16, 20, 24),
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveValue(6, 8, 10)
+      : getResponsiveValue(8, 10, 12),
+    minHeight: Platform.OS === 'android' && SCREEN_HEIGHT > 1500 
+      ? getResponsiveValue(40, 44, 48) 
+      : getResponsiveValue(48, 50, 54),
+    width: '100%',
+    justifyContent: 'center',
   },
   sendButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: Platform.OS === 'android' && SCREEN_HEIGHT > 1500
+      ? getResponsiveFontSize(14)
+      : getResponsiveFontSize(18),
     fontWeight: '600',
   },
   buttonDisabled: {
     opacity: 0.6,
   },
 });
-
