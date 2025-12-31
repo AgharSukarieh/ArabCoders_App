@@ -190,7 +190,7 @@ export function AboutUsScreen({ onBack }: AboutUsScreenProps) {
   const iconColor = isDark ? '#FFFFFF' : '#085173';
 
   return (
-    <SafeAreaView style={dynamicStyles.container}>
+    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
       <StatusBar style={isDark ? "light" : "dark"} />
       
       {/* Header */}

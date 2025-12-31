@@ -7,8 +7,20 @@ import { WebView } from 'react-native-webview';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { Post } from '@/services/postsService';
+import { CommentsModal } from '@/components/modals/CommentsModal';
 
 const SCREEN = Dimensions.get('window');
+
+interface Comment {
+  id: number;
+  text: string;
+  userName?: string;
+  user?: { userName: string };
+  createdAt?: string;
+  imageURL?: string;
+  parentCommentId?: number;
+  hasChild?: boolean;
+}
 
 export interface PostDetailViewProps {
   post: Post;
@@ -17,11 +29,48 @@ export interface PostDetailViewProps {
   onComment: (postId: number) => void;
   onShare: (postId: number) => void;
   onUserPress?: (userId: number) => void;
+  // Props للتعليقات
+  comments?: Comment[];
+  loadingComments?: boolean;
+  expandedComments?: Set<number>;
+  repliesByParent?: Record<number, Comment[]>;
+  repliesLoading?: Set<number>;
+  replyTarget?: Comment | null;
+  newCommentText?: string;
+  sendingComment?: boolean;
+  userProfileImage?: string;
+  onCommentTextChange?: (text: string) => void;
+  onSendComment?: () => void;
+  onToggleReplies?: (commentId: number) => void;
+  onReplyPress?: (comment: Comment) => void;
+  renderComment?: (comment: Comment, depth?: number) => React.ReactElement;
 }
 
-export function PostDetailView({ post, onClose, onLike, onComment, onShare, onUserPress }: PostDetailViewProps) {
+export function PostDetailView({ 
+  post, 
+  onClose, 
+  onLike, 
+  onComment, 
+  onShare, 
+  onUserPress,
+  comments = [],
+  loadingComments = false,
+  expandedComments = new Set(),
+  repliesByParent = {},
+  repliesLoading = new Set(),
+  replyTarget = null,
+  newCommentText = '',
+  sendingComment = false,
+  userProfileImage,
+  onCommentTextChange,
+  onSendComment,
+  onToggleReplies,
+  onReplyPress,
+  renderComment,
+}: PostDetailViewProps) {
   const [showFullText, setShowFullText] = useState(false);
   const [textTruncated, setTextTruncated] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
   
   // Video player for post videos
   const hasVideos = post.videos && post.videos.length > 0;
@@ -126,26 +175,39 @@ export function PostDetailView({ post, onClose, onLike, onComment, onShare, onUs
           </View>
         )}
 
+        {/* Actions positioned absolutely over the image */}
+        <View style={styles.modalActionsLeft}>
+          <TouchableOpacity style={styles.modalActionItem} onPress={() => onLike(post.id)}>
+            <Ionicons
+              name={post.isLikedIt ? 'heart' : 'heart-outline'}
+              size={24}
+              color={post.isLikedIt ? '#FF3B30' : '#FFFFFF'}
+            />
+            <Text style={styles.modalActionNumber}>{post.numberLike}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.modalActionItem} 
+            onPress={() => {
+              // فتح modal التعليقات محلياً داخل PostDetailView
+              setShowCommentsModal(true);
+              // استدعاء onComment لتحميل التعليقات
+              onComment(post.id);
+            }}>
+            <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
+            <Text style={styles.modalActionNumber}>5</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.modalActionItem} onPress={() => onShare(post.id)}>
+            <Image 
+              source={require('@/assets/icons/sharing.png')} 
+              style={{ width: 24, height: 24, tintColor: "#FFFFFF" }}
+              contentFit="contain"
+            />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.modalBottomSection}>
-          <View style={styles.modalActionsLeft}>
-            <TouchableOpacity style={styles.modalActionItem} onPress={() => onLike(post.id)}>
-              <Ionicons
-                name={post.isLikedIt ? 'heart' : 'heart-outline'}
-                size={24}
-                color={post.isLikedIt ? '#FF3B30' : '#FFFFFF'}
-              />
-              <Text style={styles.modalActionNumber}>{post.numberLike}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalActionItem} onPress={() => onComment(post.id)}>
-              <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
-              <Text style={styles.modalActionNumber}>5</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.modalActionItem} onPress={() => onShare(post.id)}>
-              <Ionicons name="arrow-up" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
 
           <ScrollView
             style={styles.modalRightSection}
@@ -224,6 +286,36 @@ export function PostDetailView({ post, onClose, onLike, onComment, onShare, onUs
           </View>
         </View>
       </Modal>
+
+      {/* Modal التعليقات داخل PostDetailView */}
+      {renderComment && onCommentTextChange && onSendComment && onToggleReplies && onReplyPress && (
+        <Modal
+          visible={showCommentsModal}
+          transparent={true}
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent={true}
+          onRequestClose={() => setShowCommentsModal(false)}>
+          <CommentsModal
+            visible={showCommentsModal}
+            loading={loadingComments}
+            comments={comments}
+            expandedComments={expandedComments}
+            repliesByParent={repliesByParent}
+            repliesLoading={repliesLoading}
+            replyTarget={replyTarget}
+            newCommentText={newCommentText}
+            sendingComment={sendingComment}
+            userProfileImage={userProfileImage}
+            onCommentTextChange={onCommentTextChange}
+            onSendComment={onSendComment}
+            onToggleReplies={onToggleReplies}
+            onReplyPress={onReplyPress}
+            onClose={() => setShowCommentsModal(false)}
+            renderComment={renderComment}
+          />
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -252,6 +344,7 @@ const styles = StyleSheet.create({
   },
   modalContentWrapper: {
     flex: 1,
+    position: 'relative',
   },
   modalImageContainer: {
     width: SCREEN.width,
@@ -273,9 +366,12 @@ const styles = StyleSheet.create({
     minHeight: 150,
   },
   modalActionsLeft: {
+    position: 'absolute',
+    left: 16,
+    top: SCREEN.height * 0.65 - 120,
     alignItems: 'center',
-    marginRight: 20,
     gap: 20,
+    zIndex: 5,
   },
   modalActionItem: {
     alignItems: 'center',

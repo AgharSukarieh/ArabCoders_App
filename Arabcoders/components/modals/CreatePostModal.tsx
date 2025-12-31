@@ -89,7 +89,7 @@ export function CreatePostModal({
   const tagCloseIconColor = isDark ? '#AAAAAA' : '#666';
 
   return (
-    <SafeAreaView style={dynamicStyles.container}>
+    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <View style={dynamicStyles.header}>
         <TouchableOpacity onPress={onClose} style={createPostModalStyles.cancelButton}>

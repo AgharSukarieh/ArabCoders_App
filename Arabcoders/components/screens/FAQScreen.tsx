@@ -6,10 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  SafeAreaView,
   Animated,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -165,7 +165,7 @@ export function FAQScreen({ onBack }: FAQScreenProps) {
   const emptyIconColor = isDark ? '#666' : '#CCC';
 
   return (
-    <SafeAreaView style={dynamicStyles.container}>
+    <SafeAreaView style={dynamicStyles.container} >
       <StatusBar style={isDark ? "light" : "dark"} />
       
       {/* Header */}

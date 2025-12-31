@@ -766,7 +766,11 @@ export const PostCard: React.FC<PostCardProps> = ({
             <TouchableOpacity 
               style={styles.modalActionVerticalItem}
               onPress={() => onShare(post.id)}>
-              <Ionicons name="arrow-up" size={24} color={isDark ? "#CCCCCC" : "#666"} />
+              <Image 
+                source={require('@/assets/icons/sharing.png')} 
+                style={{ width: 24, height: 24, tintColor: isDark ? "#CCCCCC" : "#666" }}
+                contentFit="contain"
+              />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -921,7 +925,11 @@ export const PostCard: React.FC<PostCardProps> = ({
       <View style={styles.actionsContainer}>
         <View style={styles.actionsLeft}>
           <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post.id)}>
-            <Ionicons name="arrow-up" size={20} color={isDark ? "#CCCCCC" : "#666"} />
+            <Image 
+              source={require('@/assets/icons/sharing.png')} 
+              style={{ width: 20, height: 20, tintColor: isDark ? "#CCCCCC" : "#666" }}
+              contentFit="contain"
+            />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.commentButtonContainer}

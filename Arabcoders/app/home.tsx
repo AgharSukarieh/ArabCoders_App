@@ -19,6 +19,8 @@ import {
   Animated,
   Easing,
   PanResponder,
+  Share,
+  Linking,
 } from 'react-native';
 import AnimatedReanimated, {
   useSharedValue,
@@ -68,6 +70,7 @@ import { ar } from 'date-fns/locale';
 import { getCountries } from '@/services/authService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { showMessage } from 'react-native-flash-message';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -124,6 +127,7 @@ export default function HomeScreen() {
   const [loadingLikes, setLoadingLikes] = useState(false);
   const likesModalTranslateY = useRef(new Animated.Value(0)).current;
   const likesModalHeight = useRef(new Animated.Value(400)).current;
+  const commentsModalOpenRef = useRef(false);
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [createPostTitle, setCreatePostTitle] = useState('');
   const [createPostText, setCreatePostText] = useState('');
@@ -533,10 +537,15 @@ export default function HomeScreen() {
 
       console.log('📝 Opening comments for post:', postId);
       
+      // تحديد المنشور أولاً
+      setSelectedPostForComments(post);
+      
       // إعادة تعيين التعليقات قبل فتح الـ modal
       setComments([]);
       setLoadingComments(true);
-      setSelectedPostForComments(post);
+      
+      // فتح modal التعليقات
+      commentsModalOpenRef.current = true;
       setShowCommentsModal(true);
       
       // جلب التعليقات بعد فتح الـ modal
@@ -791,6 +800,7 @@ export default function HomeScreen() {
   };
 
   const closeCommentsModal = () => {
+    commentsModalOpenRef.current = false;
     setShowCommentsModal(false);
     setSelectedPostForComments(null);
     setComments([]);
@@ -798,9 +808,38 @@ export default function HomeScreen() {
     setReplyTarget(null);
   };
 
-  const handleShare = (postId: number) => {
-    // TODO: Implement share functionality
-    console.log('Share post:', postId);
+  const handleShare = async (postId: number) => {
+    try {
+      const post = posts.find((p) => p.id === postId);
+      if (!post) {
+        console.warn('Post not found:', postId);
+        return;
+      }
+
+      // إنشاء رابط المنشور
+      const postUrl = `https://arabcoders.com/post/${postId}`;
+      const shareMessage = post.title 
+        ? `${post.title}\n\n${postUrl}`
+        : `شاهد هذا المنشور على ArabCoders\n\n${postUrl}`;
+
+      // فتح قائمة المشاركة
+      const result = await Share.share({
+        message: shareMessage,
+        url: postUrl, // للـ iOS
+        title: post.title || 'منشور من ArabCoders',
+      });
+
+      // إذا اختار المستخدم واتساب أو تطبيق آخر
+      if (result.action === Share.sharedAction) {
+        if (result.activityType) {
+          // تم المشاركة عبر تطبيق معين
+          console.log('Shared via:', result.activityType);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error sharing:', error);
+      Alert.alert('خطأ', 'فشل مشاركة المنشور');
+    }
   };
 
   const handleShowLikes = async (postId: number) => {
@@ -1469,30 +1508,35 @@ export default function HomeScreen() {
     );
   };
 
-  const handleReportPost = (postId: number) => {
-    Alert.alert(
-      'الإبلاغ عن المنشور',
-      'هل تريد الإبلاغ عن هذا المنشور؟',
-      [
-        {
-          text: 'إلغاء',
-          style: 'cancel',
+  const handleReportPost = async (postId: number): Promise<boolean> => {
+    try {
+      const response = await api.post(`/api/post-likes/postsReports/${postId}`, {}, {
+        headers: {
+          'accept': '*/*',
         },
-        {
-          text: 'إبلاغ',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // TODO: استدعاء API للإبلاغ عن المنشور
-              // await reportPost(postId);
-              Alert.alert('شكراً لك', 'تم الإبلاغ عن المنشور بنجاح');
-            } catch (error: any) {
-              Alert.alert('خطأ', error?.message || 'فشل الإبلاغ عن المنشور');
-            }
-          },
-        },
-      ]
-    );
+      });
+      
+      // عرض رسالة النجاح
+      showMessage({
+        message: 'تم الإبلاغ',
+        description: 'شكراً لك، تم الإبلاغ عن المنشور بنجاح',
+        type: 'success',
+        duration: 3000,
+        icon: 'success',
+      });
+      
+      return true;
+    } catch (error: any) {
+      console.error('❌ Error reporting post:', error);
+      showMessage({
+        message: 'خطأ',
+        description: error?.response?.data?.message || error?.message || 'فشل الإبلاغ عن المنشور',
+        type: 'danger',
+        duration: 3000,
+        icon: 'danger',
+      });
+      return false;
+    }
   };
 
   let content: React.ReactElement | null = null;
@@ -1811,19 +1855,57 @@ export default function HomeScreen() {
         visible={selectedPost !== null}
         animationType="slide"
         presentationStyle="fullScreen"
-        onRequestClose={closePostModal}>
+        onRequestClose={() => {
+          // منع إغلاق modal المنشور إذا كان modal التعليقات مفتوحاً
+          if (!commentsModalOpenRef.current) {
+            closePostModal();
+          }
+        }}>
         {selectedPost && (
           <PostDetailView 
             post={posts.find(p => p.id === selectedPost.id) || selectedPost} 
             onClose={closePostModal} 
             onLike={handleLike} 
-            onComment={handleComment}
+            onComment={async (postId: number) => {
+              // تحميل التعليقات فقط (PostDetailView سيفتح modal التعليقات محلياً)
+              try {
+                const post = posts.find((p) => p.id === postId);
+                if (!post) {
+                  console.warn('⚠️ Post not found:', postId);
+                  return;
+                }
+                setSelectedPostForComments(post);
+                setComments([]);
+                setLoadingComments(true);
+                await loadComments(postId);
+              } catch (error) {
+                console.error('❌ Error loading comments:', error);
+                setLoadingComments(false);
+              }
+            }}
             onShare={handleShare}
             onUserPress={(userId) => {
               setSelectedUserId(userId);
               setShowUserProfile(true);
               closePostModal();
             }}
+            comments={comments}
+            loadingComments={loadingComments}
+            expandedComments={expandedComments}
+            repliesByParent={repliesByParent}
+            repliesLoading={repliesLoading}
+            replyTarget={replyTarget}
+            newCommentText={newCommentText}
+            sendingComment={sendingComment}
+            userProfileImage={userProfileImage}
+            onCommentTextChange={setNewCommentText}
+            onSendComment={sendComment}
+            onToggleReplies={toggleReplies}
+            onReplyPress={(comment) => {
+              setReplyTarget(comment);
+              setNewCommentText('');
+            }}
+            renderComment={renderComment}
           />
         )}
       </Modal>
@@ -1876,33 +1958,38 @@ export default function HomeScreen() {
         />
       </Modal>
 
-      <Modal
-        visible={showCommentsModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={closeCommentsModal}>
-        <CommentsModal
+      {/* Modal التعليقات خارج modal المنشور (للحالات الأخرى - من PostCard) */}
+      {!selectedPost && (
+        <Modal
           visible={showCommentsModal}
-          loading={loadingComments}
-          comments={comments}
-          expandedComments={expandedComments}
-          repliesByParent={repliesByParent}
-          repliesLoading={repliesLoading}
-          replyTarget={replyTarget}
-          newCommentText={newCommentText}
-          sendingComment={sendingComment}
-          userProfileImage={userProfileImage}
-          onCommentTextChange={setNewCommentText}
-          onSendComment={sendComment}
-          onToggleReplies={toggleReplies}
-          onReplyPress={(comment) => {
-            setReplyTarget(comment);
-            setNewCommentText('');
-          }}
-          onClose={closeCommentsModal}
-          renderComment={renderComment}
-        />
-      </Modal>
+          transparent={true}
+          animationType="slide"
+          presentationStyle="overFullScreen"
+          statusBarTranslucent={true}
+          onRequestClose={closeCommentsModal}>
+          <CommentsModal
+            visible={showCommentsModal}
+            loading={loadingComments}
+            comments={comments}
+            expandedComments={expandedComments}
+            repliesByParent={repliesByParent}
+            repliesLoading={repliesLoading}
+            replyTarget={replyTarget}
+            newCommentText={newCommentText}
+            sendingComment={sendingComment}
+            userProfileImage={userProfileImage}
+            onCommentTextChange={setNewCommentText}
+            onSendComment={sendComment}
+            onToggleReplies={toggleReplies}
+            onReplyPress={(comment) => {
+              setReplyTarget(comment);
+              setNewCommentText('');
+            }}
+            onClose={closeCommentsModal}
+            renderComment={renderComment}
+          />
+        </Modal>
+      )}
     </>
   );
 }

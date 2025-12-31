@@ -24,6 +24,7 @@ import { FollowingScreen } from './FollowingScreen';
 import { FollowersScreen } from './FollowersScreen';
 import { ProgressCircle } from '@/components/common/ProgressCircle';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAppColors } from '@/hooks/use-app-colors';
 
 export interface ProfileScreenProps {
   onBack: () => void;
@@ -32,6 +33,7 @@ export interface ProfileScreenProps {
 
 export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
   const { isDark } = useTheme();
+  const colors = useAppColors();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [easyCount, setEasyCount] = useState(0);
@@ -645,7 +647,11 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
     editModalSelectText: { ...styles.editModalSelectText, color: isDark ? '#FFFFFF' : '#333' },
     editModalPlaceholder: { ...styles.editModalPlaceholder, color: isDark ? '#666' : '#999' },
     editModalInputDisabled: { ...styles.editModalInputDisabled, backgroundColor: isDark ? '#1E1E1E' : '#F5F5F5', color: isDark ? '#888' : '#999' },
-    editPageContainer: { ...styles.editPageContainer, backgroundColor: isDark ? '#121212' : '#FFFFFF' },
+    editPageContainer: { ...styles.editPageContainer, backgroundColor: colors.background },
+    editPageTitle: { ...styles.editPageTitle, color: colors.textWhite },
+    editPageHeader: { ...styles.editPageHeader, backgroundColor: colors.primary },
+    editPageImageOverlay: { ...styles.editPageImageOverlay, backgroundColor: colors.primary, borderColor: colors.textWhite },
+    editPageMainImage: { ...styles.editPageMainImage, borderColor: colors.textWhite },
     editModalInputContainer: { backgroundColor: isDark ? '#2E2E2E' : '#FFFFFF', borderColor: isDark ? '#444' : '#DADADA' },
     pickerSheetOverlay: { ...styles.pickerSheetOverlay, backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.4)' },
     pickerSheetContainer: { ...styles.pickerSheetContainer, backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF' },
@@ -659,15 +665,15 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
 
   if (showEditPage) {
     return (
-      <View style={styles.editPageContainer}>
-        <StatusBar style="light" />
-        <View style={styles.editPageHeader}>
+      <View style={[styles.editPageContainer, dynamicStyles.editPageContainer]}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <View style={[styles.editPageHeader, dynamicStyles.editPageHeader]}>
           <Stars />
           <View style={styles.editPageHeaderTop}>
             <TouchableOpacity onPress={() => setShowEditPage(false)} style={styles.editPageBackButton}>
-              <Ionicons name="arrow-forward" size={22} color="#fff" />
+              <Ionicons name="arrow-forward" size={22} color={colors.textWhite} />
             </TouchableOpacity>
-            <Text style={styles.editPageTitle}>تعديل الملف الشخصي</Text>
+            <Text style={[styles.editPageTitle, dynamicStyles.editPageTitle]}>تعديل الملف الشخصي</Text>
             <View style={{ width: 32 }} />
           </View>
         </View>
@@ -678,11 +684,11 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
               source={
                 editProfileImage ? { uri: editProfileImage } : (userData.imageUrl || userData.imageURL ? { uri: userData.imageUrl || userData.imageURL } : require('@/assets/images/icon.png'))
               }
-              style={styles.editPageMainImage}
+              style={[styles.editPageMainImage, dynamicStyles.editPageMainImage]}
               contentFit="cover"
             />
-            <View style={styles.editPageImageOverlay}>
-              <Ionicons name="camera" size={24} color="#FFFFFF" />
+            <View style={[styles.editPageImageOverlay, dynamicStyles.editPageImageOverlay]}>
+              <Ionicons name="camera" size={24} color={colors.textWhite} />
             </View>
           </TouchableOpacity>
         </View>
@@ -691,7 +697,7 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
 
           <View style={styles.editModalField}>
             <Text style={dynamicStyles.editModalLabel}>اسم المستخدم</Text>
-            <TextInput style={dynamicStyles.editModalInput} value={editName} onChangeText={setEditName} placeholder="الاسم" placeholderTextColor={isDark ? '#666' : '#999'} />
+            <TextInput style={dynamicStyles.editModalInput} value={editName} onChangeText={setEditName} placeholder="الاسم" placeholderTextColor={colors.textTertiary} />
           </View>
 
           <View style={styles.editModalField}>
@@ -701,7 +707,7 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
               value={editEmail}
               onChangeText={setEditEmail}
               placeholder="email@example.com"
-              placeholderTextColor={isDark ? '#666' : '#999'}
+              placeholderTextColor={colors.textTertiary}
             />
           </View>
 
@@ -739,7 +745,7 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
                 value={otp}
                 onChangeText={setOtp}
                 placeholder="أدخل رمز التحقق المرسل إلى الإيميل الجديد"
-                placeholderTextColor={isDark ? '#666' : '#999'}
+                placeholderTextColor={colors.textTertiary}
                 keyboardType="number-pad"
                 maxLength={6}
               />
@@ -747,13 +753,13 @@ export function ProfileScreen({ onBack, onUserPress }: ProfileScreenProps) {
           )}
 
           <TouchableOpacity 
-            style={[styles.editModalButton, updating && styles.editModalButtonDisabled]} 
+            style={[styles.editModalButton, { backgroundColor: colors.primary }, updating && styles.editModalButtonDisabled]} 
             onPress={handleUpdateProfile}
             disabled={updating}>
             {updating ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.textWhite} />
             ) : (
-              <Text style={styles.editModalButtonText}>تعديل</Text>
+              <Text style={[styles.editModalButtonText, { color: colors.textWhite }]}>تعديل</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
