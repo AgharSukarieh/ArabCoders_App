@@ -139,3 +139,12 @@ npm run build:android:bundle # AAB (متجر Google Play)
 **صُنع لمجتمع المبرمجين العرب — ArabCoders**
 
 </div>
+## 📸 Screenshots
+
+![Logo](./logo.jpeg)
+
+![Dark Mode](./dark.jpeg)
+
+![Light Home](./light_home.jpeg)
+
+![More](./more.jpeg)
