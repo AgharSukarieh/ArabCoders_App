@@ -41,6 +41,11 @@ export default function ContestDetailsScreen() {
   const [prizesExpanded, setPrizesExpanded] = useState(true);
   const [termsExpanded, setTermsExpanded] = useState(false);
   const [questionsExpanded, setQuestionsExpanded] = useState(false);
+  const [rankingExpanded, setRankingExpanded] = useState(false);
+  
+  // State لترتيب المتسابقين
+  const [ranking, setRanking] = useState<any[]>([]);
+  const [loadingRanking, setLoadingRanking] = useState(false);
   
   // State للشروط والأحكام والجوائز (إذا لم تكن موجودة في API)
   const [termsAndConditions, setTermsAndConditions] = useState<string>('');
@@ -132,6 +137,9 @@ export default function ContestDetailsScreen() {
 
       // بعد تحميل المسابقة، تحقق من حالة التسجيل
       await checkRegistrationStatus(contestId);
+      
+      // تحميل ترتيب المتسابقين
+      await loadRanking(contestId);
     } catch (err: any) {
       console.error('Error fetching contest:', err);
       setError(err.message || 'حدث خطأ في جلب تفاصيل المسابقة');
@@ -236,6 +244,30 @@ export default function ContestDetailsScreen() {
       Alert.alert('خطأ', errorMessage);
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const loadRanking = async (contestId: number) => {
+    try {
+      setLoadingRanking(true);
+      const response = await api.get(`/api/contests/${contestId}/stages`, {
+        headers: {
+          'accept': '*/*',
+        },
+      });
+      
+      if (Array.isArray(response.data)) {
+        // ترتيب حسب rank
+        const sortedRanking = response.data.sort((a: any, b: any) => a.rank - b.rank);
+        setRanking(sortedRanking);
+      } else {
+        setRanking([]);
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading ranking:', error);
+      setRanking([]);
+    } finally {
+      setLoadingRanking(false);
     }
   };
 
@@ -506,6 +538,98 @@ export default function ContestDetailsScreen() {
                   </View>
                 </View>
               ))}
+            </View>
+          )}
+        </View>
+
+        {/* Ranking Section */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.sectionHeader}
+            onPress={() => {
+              setRankingExpanded(!rankingExpanded);
+              if (!rankingExpanded && ranking.length === 0 && contest?.id) {
+                loadRanking(contest.id);
+              }
+            }}>
+            <Text style={styles.sectionTitle}>ترتيب المتسابقين</Text>
+            <Ionicons
+              name={rankingExpanded ? 'chevron-down' : 'chevron-up'}
+              size={20}
+              color="#666"
+            />
+          </TouchableOpacity>
+          
+          {rankingExpanded && (
+            <View style={styles.sectionContent}>
+              {loadingRanking ? (
+                <View style={styles.rankingLoadingContainer}>
+                  <ActivityIndicator size="small" color="#085173" />
+                  <Text style={styles.rankingLoadingText}>جاري تحميل الترتيب...</Text>
+                </View>
+              ) : ranking.length === 0 ? (
+                <View style={styles.rankingEmptyContainer}>
+                  <Ionicons name="trophy-outline" size={48} color="#CCCCCC" />
+                  <Text style={styles.rankingEmptyText}>لا يوجد متسابقين بعد</Text>
+                </View>
+              ) : (
+                <View style={styles.rankingList}>
+                  {ranking.map((participant: any, index: number) => (
+                    <View key={participant.idUser || index} style={styles.rankingItem}>
+                      <View style={styles.rankingItemLeft}>
+                        <View style={[
+                          styles.rankBadge,
+                          participant.rank === 1 && styles.rankBadgeGold,
+                          participant.rank === 2 && styles.rankBadgeSilver,
+                          participant.rank === 3 && styles.rankBadgeBronze,
+                        ]}>
+                          <Text style={[
+                            styles.rankNumber,
+                            (participant.rank <= 3) && styles.rankNumberTop
+                          ]}>
+                            {participant.rank}
+                          </Text>
+                        </View>
+                        <ExpoImage
+                          source={
+                            participant.imageURL
+                              ? { uri: participant.imageURL }
+                              : require('@/assets/images/icon.png')
+                          }
+                          style={styles.rankingAvatar}
+                          contentFit="cover"
+                        />
+                        <View style={styles.rankingUserInfo}>
+                          <Text style={styles.rankingUserName} numberOfLines={1}>
+                            {participant.userName || 'مستخدم'}
+                          </Text>
+                          <View style={styles.rankingStats}>
+                            <Text style={styles.rankingScore}>
+                              النقاط: {participant.score?.toLocaleString() || 0}
+                            </Text>
+                            {participant.stages && participant.stages.length > 0 && (
+                              <Text style={styles.rankingSolved}>
+                                محلول: {participant.stages.filter((s: any) => s.isAccepted).length}/{participant.stages.length}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                      {participant.rank <= 3 && (
+                        <Ionicons
+                          name="trophy"
+                          size={24}
+                          color={
+                            participant.rank === 1 ? '#FFD700' :
+                            participant.rank === 2 ? '#C0C0C0' :
+                            '#CD7F32'
+                          }
+                        />
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -833,6 +957,102 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  rankingLoadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+  },
+  rankingLoadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#666',
+  },
+  rankingEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  rankingEmptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+  },
+  rankingList: {
+    gap: 12,
+  },
+  rankingItem: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8F8F8',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  rankingItemLeft: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    flex: 1,
+  },
+  rankBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E0E0E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  rankBadgeGold: {
+    backgroundColor: '#FFD700',
+  },
+  rankBadgeSilver: {
+    backgroundColor: '#C0C0C0',
+  },
+  rankBadgeBronze: {
+    backgroundColor: '#CD7F32',
+  },
+  rankNumber: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#666',
+  },
+  rankNumberTop: {
+    color: '#FFFFFF',
+  },
+  rankingAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginLeft: 12,
+  },
+  rankingUserInfo: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  rankingUserName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+    textAlign: 'right',
+  },
+  rankingStats: {
+    flexDirection: 'row-reverse',
+    gap: 12,
+    alignItems: 'center',
+  },
+  rankingScore: {
+    fontSize: 13,
+    color: '#085173',
+    fontWeight: '500',
+  },
+  rankingSolved: {
+    fontSize: 13,
+    color: '#4CAF50',
+    fontWeight: '500',
   },
 });
 

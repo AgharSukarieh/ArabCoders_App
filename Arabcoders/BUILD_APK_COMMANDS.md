@@ -118,3 +118,5 @@ cd /home/aghar/Desktop/ArabCoders/AppArabcoders/Arabcoders && npx expo run:andro
 cd /home/aghar/Desktop/ArabCoders/AppArabcoders/Arabcoders/android && ./gradlew clean && ./gradlew assembleRelease
 ```
 
+
+cd 

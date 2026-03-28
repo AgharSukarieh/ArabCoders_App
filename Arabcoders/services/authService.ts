@@ -332,46 +332,8 @@ export const refreshToken = async (): Promise<any> => {
 // 8. إلغاء Token (Revoke Token) - تسجيل الخروج
 // ============================================
 export const revokeToken = async (token: string): Promise<any> => {
-  try {
-    if (!token || !token.trim()) {
-      throw new Error('الـ token مطلوب');
-    }
-    
-    const cleanToken = token.trim();
-    console.log('📤 Revoking token...', cleanToken.substring(0, 30) + '...');
-    
-    // استخدام axios مباشرة لتجنب أي تداخل مع interceptor
-    const response = await axios.post(
-      'http://arabcodetest.runasp.net/api/auth/revoke-token',
-      {
-        token: cleanToken,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'accept': '*/*',
-          'Authorization': `Bearer ${cleanToken}`,
-        },
-        timeout: 10000,
-      }
-    );
-    
-    console.log('✅ Revoke token response:', response.data);
-    return response.data;
-  } catch (error: any) {
-    console.error('❌ Error revoking token:', error?.response?.data || error?.message || error);
-    
-    // حتى لو فشل الطلب، نعتبر أن تسجيل الخروج نجح محلياً
-    const errorMessage =
-      error?.response?.data?.message ||
-      error?.response?.data ||
-      error?.message ||
-      'فشل إلغاء الـ token';
-    
-    // لا نرمي خطأ هنا، لأننا نريد مسح البيانات المحلية حتى لو فشل الطلب
-    console.warn('⚠️ Revoke token failed, but continuing with local logout:', errorMessage);
-    return { success: false, message: errorMessage };
-  }
+  // تسجيل الخروج المحلي فقط بدون محاولة إلغاء الـ token من السيرفر
+  return { success: true, message: 'تم تسجيل الخروج بنجاح' };
 };
 
 // ============================================

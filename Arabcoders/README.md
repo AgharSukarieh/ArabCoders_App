@@ -1,50 +1,141 @@
-# Welcome to your Expo app 👋
+<div align="center">
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+# ArabCoders — تطبيق المبرمجين العرب
 
-## Get started
+**منصة مجتمعية وتعليمية للمبرمجين الناطقين بالعربية**
 
-1. Install dependencies
+[![Expo](https://img.shields.io/badge/Expo-SDK%2054-000020?style=flat&logo=expo)](https://expo.dev/)
+[![React Native](https://img.shields.io/badge/React%20Native-0.81-61DAFB?style=flat&logo=react)](https://reactnative.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-   ```bash
-   npm install
-   ```
+[الوصف بالعربية](#-نبذة) · [English](#-overview) · [التشغيل السريع](#-التشغيل-السريع) · [Quick start](#-quick-start)
 
-2. Start the app
+</div>
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## 🇸🇦 نبذة
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+**ArabCoders** تطبيق جوال (Android / iOS) مبني بـ **Expo** و**React Native**، يربط المستخدمين بخلفية API ويدعم تجربة عربية كاملة: المنشورات، التعليقات، الإعجابات، المسابقات، الترتيب، الفعاليات، الإشعارات الفورية، والملف الشخصي.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### المميزات
 
-## Get a fresh project
+| المجال                   | التفاصيل                                                            |
+| ------------------------ | ------------------------------------------------------------------- |
+| **المحتوى الاجتماعي**    | منشورات، وسوم، بحث، تفاصيل المنشور، تعليقات وإعجابات                |
+| **المسابقات والفعاليات** | شاشات مخصصة للمسابقات والأحداث وتفاصيلها                            |
+| **الحساب والأمان**       | تسجيل دخول، JWT، تجديد التوكن تلقائياً، تخزين آمن محلياً            |
+| **الوقت الفعلي**         | SignalR للتفاعل الحي مع الخادم                                      |
+| **تجربة المستخدم**       | وضع فاتح/داكن، رسوم متحركة (Reanimated / Lottie)، هيكل عظمي للتحميل |
+| **وسائط**                | صور وفيديو، اختيار من المعرض أو الكاميرا                            |
 
-When you're ready, run:
+---
+
+## 🇬🇧 Overview
+
+**ArabCoders** is a cross-platform mobile app for the Arabic-speaking developer community. It connects to a backend API and offers feeds, contests, events, rankings, profiles, and real-time updates via SignalR.
+
+---
+
+## 🛠 التقنيات | Tech stack
+
+- **Framework:** [Expo](https://expo.dev/) ~54, [Expo Router](https://docs.expo.dev/router/introduction/) (file-based routing)
+- **UI:** React Native 0.81, React 19, TypeScript
+- **Networking:** Axios، اعتراضات للتوكن وتجديد الجلسة
+- **Realtime:** [@microsoft/signalr](https://www.npmjs.com/package/@microsoft/signalr)
+- **Other:** AsyncStorage، expo-image / expo-video، react-native-reanimated، Skia (حسب الشاشات)
+
+---
+
+## المتطلبات | Prerequisites
+
+- [Node.js](https://nodejs.org/) (LTS موصى به)
+- [npm](https://www.npmjs.com/) أو yarn
+- لتشغيل على جهاز حقيقي: [Expo Go](https://expo.dev/go) أو **Development Build**
+- لبناء Android محلياً: Android Studio + JDK (بعد `npx expo prebuild` إن لزم)
+
+---
+
+## ⚡ التشغيل السريع
+
+من مجلد المشروع `Arabcoders`:
 
 ```bash
-npm run reset-project
+npm install
+npm start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+ثم اختر من الطرفية: مسح QR في **Expo Go**، أو محاكي Android/iOS، أو الويب (`w`).
 
-## Learn more
+أوامر إضافية من `package.json`:
 
-To learn more about developing your project with Expo, look at the following resources:
+| الأمر             | الوظيفة                                          |
+| ----------------- | ------------------------------------------------ |
+| `npm run android` | تشغيل على Android (يتطلب بيئة أصلية أو prebuild) |
+| `npm run ios`     | تشغيل على iOS (macOS)                            |
+| `npm run web`     | تشغيل واجهة الويب                                |
+| `npm run lint`    | فحص ESLint                                       |
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## ⚡ Quick start
 
-Join our community of developers creating universal apps.
+```bash
+cd Arabcoders
+npm install
+npm start
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Use Expo Go, an emulator, or press `w` for web.
+
+---
+
+## 🔧 إعداد الخادم | API configuration
+
+عنوان الـ API الافتراضي مُعرَّف في الكود. لبيئة التطوير أو الإنتاج، عدّل قاعدة العنوان في:
+
+`services/api.ts` → `API_BASE_URL`
+
+تأكد من أن الخادم يدعم **HTTPS** في الإنتاج، وأن سياسات CORS / الشهادات مناسبة لتطبيق الجوال.
+
+---
+
+## 📁 هيكل المشروع (مختصر)
+
+```
+Arabcoders/
+├── app/                 # شاشات Expo Router (تسجيل، رئيسية، مسابقة، إلخ)
+├── components/          # مكوّنات واجهة مشتركة
+├── services/            # API، المصادقة، المنشورات، المسابقات، الرفع، التخزين
+├── contexts/            # سياقات (مثل الثيم)
+├── constants/           # ألوان وثوابت
+├── assets/              # صور وأيقونات
+└── app.json             إعدادات Expo (الاسم، الحزم، الأذونات)
+```
+
+---
+
+## 📱 بناء إصدار Android
+
+إن وُجد مجلد `android/` مولَّدًا (`expo prebuild`):
+
+```bash
+npm run build:android:apk    # APK
+npm run build:android:bundle # AAB (متجر Google Play)
+```
+
+للتفاصيل الإضافية راجع ملفات البناء في المستودع إن وُجدت (مثل `BUILD_RELEASE_APK.md`).
+
+---
+
+## 📄 الترخيص والمساهمة
+
+المشروع **خاص** (`private: true` في `package.json`). للمساهمات أو الاستخدام، تواصل مع مالك المستودع.
+
+---
+
+<div align="center">
+
+**صُنع لمجتمع المبرمجين العرب — ArabCoders**
+
+</div>
